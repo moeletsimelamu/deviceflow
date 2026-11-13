@@ -1,0 +1,613 @@
+// DeviceFlow database schema.
+// Conventions: snake_case tables/columns via @@map/@map, UUID primary keys,
+// timestamps in UTC (timestamptz), money in integer cents (later phases).
+// Constraints Prisma cannot express (CHECK constraints) are added in the SQL
+// migrations and listed in docs/DATABASE.md.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  TECHNICIAN
+  INVENTORY_MANAGER
+  CUSTOMER
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  /// Always stored lower-cased and trimmed (the API normalises it).
+  email        String    @unique @db.VarChar(254)
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name") @db.VarChar(120)
+  role         Role
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
+  /// Optimistic-concurrency counter, incremented on every update.
+  version      Int       @default(0)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Set for CUSTOMER users only (enforced by users_customer_account_chk).
+  customerAccountId String? @map("customer_account_id") @db.Uuid
+
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Restrict)
+  sessions        Session[]
+  auditLogs       AuditLog[]
+  assetsCreated   Asset[]          @relation("AssetCreatedBy")
+  assetEvents     AssetEvent[]
+
+  repairsAssigned  RepairJob[]           @relation("RepairTechnician")
+  repairsSubmitted RepairJob[]           @relation("RepairSubmittedBy")
+  repairHistory    RepairStatusHistory[]
+  repairNotes      RepairNote[]
+  labourEntries    LabourEntry[]
+  quotesCreated    Quotation[]           @relation("QuotationCreatedBy")
+  quotesIssued     Quotation[]           @relation("QuotationIssuedBy")
+  quotesDecided    Quotation[]           @relation("QuotationDecidedBy")
+  idempotencyKeys  IdempotencyKey[]
+  stockMovements   StockMovement[]
+
+  @@index([role, isActive])
+  @@index([customerAccountId])
+  @@map("users")
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// SHA-256 of the session token. The raw token exists only in the user's cookie.
+  tokenHash  String   @unique @map("token_hash") @db.Char(64)
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  /// Absolute expiry; idle expiry is computed from lastSeenAt.
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Append-only record of important business actions. No API updates or deletes rows.
+model AuditLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  actorUserId       String?  @map("actor_user_id") @db.Uuid
+  /// Dotted verb, e.g. "user.created", "auth.login".
+  action            String   @db.VarChar(64)
+  entityType        String   @map("entity_type") @db.VarChar(64)
+  entityId          String   @map("entity_id") @db.VarChar(64)
+  before            Json?
+  after             Json?
+  requestId         String?  @map("request_id") @db.VarChar(64)
+  ipAddress         String?  @map("ip_address") @db.VarChar(64)
+  /// Correlation pointers so an asset's or a customer's full activity can be listed.
+  /// Deliberately not foreign keys: an audit row must never block, or be blocked by,
+  /// the records it describes.
+  assetId           String?  @map("asset_id") @db.Uuid
+  customerAccountId String?  @map("customer_account_id") @db.Uuid
+  repairJobId       String?  @map("repair_job_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@index([assetId, createdAt])
+  @@index([repairJobId, createdAt])
+  @@index([customerAccountId, createdAt])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Single-row table (id is always 1, enforced by a CHECK constraint).
+model CompanySettings {
+  id                 Int      @id @default(1)
+  companyName        String   @map("company_name") @db.VarChar(120)
+  /// ISO 4217 code.
+  currency           String   @default("ZAR") @db.Char(3)
+  /// 1500 = 15.00%.
+  vatRateBasisPoints Int      @default(1500) @map("vat_rate_basis_points")
+  version            Int      @default(0)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("company_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: customers and assets
+// ---------------------------------------------------------------------------
+
+enum CustomerType {
+  INDIVIDUAL
+  ORGANISATION
+}
+
+/// A customer of the service company: a person or an organisation (a school, a business).
+/// Never hard-deleted. Archiving (isActive = false) hides it from pickers and blocks
+/// portal sign-in for its users.
+model CustomerAccount {
+  id            String       @id @default(uuid()) @db.Uuid
+  /// "CU-000001", from a database sequence; never reused.
+  accountNumber String       @unique @default(dbgenerated("next_customer_account_number()")) @map("account_number") @db.VarChar(16)
+  type          CustomerType
+  name          String       @db.VarChar(160)
+  email         String?      @db.VarChar(254)
+  phone         String?      @db.VarChar(32)
+  vatNumber     String?      @map("vat_number") @db.VarChar(32)
+  addressLine1  String?      @map("address_line1") @db.VarChar(160)
+  addressLine2  String?      @map("address_line2") @db.VarChar(160)
+  city          String?      @db.VarChar(80)
+  region        String?      @db.VarChar(80)
+  postalCode    String?      @map("postal_code") @db.VarChar(16)
+  /// Staff-only notes. Never shown in the customer portal.
+  notes         String?      @db.VarChar(2000)
+  isActive      Boolean      @default(true) @map("is_active")
+  version       Int          @default(0)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contacts   CustomerContact[]
+  users      User[]
+  assets     Asset[]
+  repairJobs RepairJob[]
+
+  @@index([name])
+  @@index([type, isActive])
+  @@map("customer_accounts")
+}
+
+/// A person at a customer account. At most one primary contact per account
+/// (partial unique index customer_contacts_one_primary_idx).
+model CustomerContact {
+  id                String   @id @default(uuid()) @db.Uuid
+  customerAccountId String   @map("customer_account_id") @db.Uuid
+  fullName          String   @map("full_name") @db.VarChar(120)
+  email             String?  @db.VarChar(254)
+  phone             String?  @db.VarChar(32)
+  jobTitle          String?  @map("job_title") @db.VarChar(120)
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  version           Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Restrict)
+
+  @@index([customerAccountId])
+  @@map("customer_contacts")
+}
+
+enum AssetCategory {
+  LAPTOP
+  DESKTOP
+  TABLET
+  PHONE
+  PRINTER
+  MONITOR
+  NETWORK
+  OTHER
+}
+
+enum AssetCondition {
+  NEW
+  GOOD
+  FAIR
+  POOR
+  FAULTY
+}
+
+/// Lifecycle status. The allowed transitions live in packages/shared/src/schemas/assets.ts
+/// and the API enforces them.
+enum AssetStatus {
+  IN_STOCK
+  ACTIVE
+  IN_REPAIR
+  REFURBISHING
+  RETIRED
+  DISPOSED
+}
+
+model Asset {
+  id                String         @id @default(uuid()) @db.Uuid
+  /// "DF-2026-000001", from a database sequence; never reused.
+  assetTag          String         @unique @default(dbgenerated("next_asset_tag()")) @map("asset_tag") @db.VarChar(20)
+  category          AssetCategory
+  manufacturer      String         @db.VarChar(80)
+  /// manufacturer trimmed and upper-cased by the API (assets_manufacturer_key_chk). Part of the serial uniqueness rule.
+  manufacturerKey   String         @map("manufacturer_key") @db.VarChar(80)
+  model             String         @db.VarChar(120)
+  /// Normalised to upper case with no whitespace (assets_serial_normalised_chk). NULL when the device has none.
+  serialNumber      String?        @map("serial_number") @db.VarChar(80)
+  condition         AssetCondition @default(GOOD)
+  status            AssetStatus    @default(IN_STOCK)
+  /// NULL means the service company holds it (stock). ACTIVE assets must have one (assets_active_has_customer_chk).
+  customerAccountId String?        @map("customer_account_id") @db.Uuid
+  purchaseDate      DateTime?      @map("purchase_date") @db.Date
+  warrantyExpiresOn DateTime?      @map("warranty_expires_on") @db.Date
+  warrantyNotes     String?        @map("warranty_notes") @db.VarChar(500)
+  /// Staff-only notes.
+  notes             String?        @db.VarChar(2000)
+  createdById       String         @map("created_by_id") @db.Uuid
+  version           Int            @default(0)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Restrict)
+  createdBy       User             @relation("AssetCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  events          AssetEvent[]
+  repairJobs      RepairJob[]
+
+  /// Duplicate-serial protection. NULL serials are distinct, so devices without a serial are allowed.
+  @@unique([manufacturerKey, serialNumber], map: "assets_manufacturer_serial_key")
+  @@index([customerAccountId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+  @@map("assets")
+}
+
+enum AssetEventType {
+  REGISTERED
+  DETAILS_UPDATED
+  STATUS_CHANGED
+  CUSTOMER_CHANGED
+}
+
+/// Lifecycle history of an asset. Append-only (trigger asset_events_no_update_delete).
+model AssetEvent {
+  id                    String         @id @default(uuid()) @db.Uuid
+  assetId               String         @map("asset_id") @db.Uuid
+  type                  AssetEventType
+  fromStatus            AssetStatus?   @map("from_status")
+  toStatus              AssetStatus?   @map("to_status")
+  fromCustomerAccountId String?        @map("from_customer_account_id") @db.Uuid
+  toCustomerAccountId   String?        @map("to_customer_account_id") @db.Uuid
+  /// Staff-only reason or note.
+  note                  String?        @db.VarChar(1000)
+  actorUserId           String         @map("actor_user_id") @db.Uuid
+  /// Set when a repair job caused the change (booked in, closed, cancelled).
+  repairJobId           String?        @map("repair_job_id") @db.Uuid
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  asset     Asset      @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  actor     User       @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  repairJob RepairJob? @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+
+  @@index([assetId, createdAt])
+  @@index([toCustomerAccountId])
+  @@map("asset_events")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: repairs and quotations
+// ---------------------------------------------------------------------------
+
+/// Repair job status. The state machine lives in packages/shared/src/schemas/repairs.ts;
+/// status changes only through the repair service, never by a direct update.
+enum RepairStatus {
+  SUBMITTED
+  ASSIGNED
+  DIAGNOSING
+  AWAITING_APPROVAL
+  APPROVED
+  QUOTE_REJECTED
+  IN_REPAIR
+  AWAITING_PARTS
+  QUALITY_CHECK
+  COMPLETED
+  CLOSED
+  RETURNED_UNREPAIRED
+  CANCELLED
+}
+
+enum RepairSource {
+  STAFF
+  PORTAL
+}
+
+model RepairJob {
+  id                   String       @id @default(uuid()) @db.Uuid
+  /// "RJ-000001", from a database sequence; never reused.
+  reference            String       @unique @default(dbgenerated("next_repair_reference()")) @db.VarChar(16)
+  assetId              String       @map("asset_id") @db.Uuid
+  /// The asset's owner when the job was opened. Portal access is scoped by this column.
+  customerAccountId    String       @map("customer_account_id") @db.Uuid
+  status               RepairStatus @default(SUBMITTED)
+  source               RepairSource
+  /// The fault as reported (visible to the customer).
+  faultDescription     String       @map("fault_description") @db.VarChar(2000)
+  assignedTechnicianId String?      @map("assigned_technician_id") @db.Uuid
+  submittedById        String       @map("submitted_by_id") @db.Uuid
+  /// Required to complete the job (repair_jobs_completion_chk). Visible to the customer.
+  completionSummary    String?      @map("completion_summary") @db.VarChar(2000)
+  completedAt          DateTime?    @map("completed_at") @db.Timestamptz(3)
+  /// Set when the job reaches CLOSED, RETURNED_UNREPAIRED or CANCELLED.
+  closedAt             DateTime?    @map("closed_at") @db.Timestamptz(3)
+  version              Int          @default(0)
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  asset              Asset                 @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  customerAccount    CustomerAccount       @relation(fields: [customerAccountId], references: [id], onDelete: Restrict)
+  assignedTechnician User?                 @relation("RepairTechnician", fields: [assignedTechnicianId], references: [id], onDelete: Restrict)
+  submittedBy        User                  @relation("RepairSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  history            RepairStatusHistory[]
+  notes              RepairNote[]
+  labourEntries      LabourEntry[]
+  quotations         Quotation[]
+  assetEvents        AssetEvent[]
+  stockMovements     StockMovement[]
+
+  @@index([status])
+  @@index([assignedTechnicianId, status])
+  @@index([customerAccountId, createdAt])
+  @@index([assetId])
+  @@index([createdAt])
+  @@map("repair_jobs")
+}
+
+/// Every status change of a repair job. Append-only (trigger repair_status_history_no_update_delete).
+model RepairStatusHistory {
+  id          String        @id @default(uuid()) @db.Uuid
+  repairJobId String        @map("repair_job_id") @db.Uuid
+  fromStatus  RepairStatus? @map("from_status")
+  toStatus    RepairStatus  @map("to_status")
+  /// Staff-only reason or note.
+  note        String?       @db.VarChar(2000)
+  actorUserId String        @map("actor_user_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  repairJob RepairJob @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+  actor     User      @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([repairJobId, createdAt])
+  @@map("repair_status_history")
+}
+
+/// FAULT, DIAGNOSTIC, REPAIR and INTERNAL notes are staff-only; CUSTOMER_VISIBLE notes
+/// appear in the portal.
+enum RepairNoteType {
+  FAULT
+  DIAGNOSTIC
+  REPAIR
+  INTERNAL
+  CUSTOMER_VISIBLE
+}
+
+/// Append-only (trigger repair_notes_no_update_delete).
+model RepairNote {
+  id          String         @id @default(uuid()) @db.Uuid
+  repairJobId String         @map("repair_job_id") @db.Uuid
+  type        RepairNoteType
+  body        String         @db.VarChar(4000)
+  authorId    String         @map("author_id") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  repairJob RepairJob @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([repairJobId, createdAt])
+  @@map("repair_notes")
+}
+
+/// Time actually spent on a job. Separate from the quotation, which is the agreed price.
+model LabourEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  repairJobId String   @map("repair_job_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  /// 1 to 1440 (labour_entries_minutes_chk).
+  minutes     Int
+  description String   @db.VarChar(500)
+  workDate    DateTime @map("work_date") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  repairJob RepairJob @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([repairJobId])
+  @@index([userId, workDate])
+  @@map("labour_entries")
+}
+
+/// DRAFT -> ISSUED -> APPROVED | REJECTED | SUPERSEDED | WITHDRAWN.
+/// Only a DRAFT can be edited; the quotations_guard trigger freezes everything else.
+enum QuotationStatus {
+  DRAFT
+  ISSUED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+  WITHDRAWN
+}
+
+/// How an approval or rejection reached us. PORTAL means the customer decided
+/// themselves; the others mean an administrator recorded it on their behalf.
+enum DecisionChannel {
+  PORTAL
+  PHONE
+  IN_PERSON
+  EMAIL
+}
+
+model Quotation {
+  id                 String           @id @default(uuid()) @db.Uuid
+  repairJobId        String           @map("repair_job_id") @db.Uuid
+  /// 1, 2, 3 ... per repair job.
+  revision           Int
+  status             QuotationStatus  @default(DRAFT)
+  /// Copied from company settings; frozen when the quotation is issued.
+  currency           String           @db.Char(3)
+  vatRateBasisPoints Int              @map("vat_rate_basis_points")
+  /// Integer cents. Lines exclude VAT; VAT is rounded half-up once per quotation.
+  subtotalCents      Int              @default(0) @map("subtotal_cents")
+  vatCents           Int              @default(0) @map("vat_cents")
+  totalCents         Int              @default(0) @map("total_cents")
+  /// Shown to the customer with the quotation.
+  customerNote       String?          @map("customer_note") @db.VarChar(2000)
+  createdById        String           @map("created_by_id") @db.Uuid
+  issuedById         String?          @map("issued_by_id") @db.Uuid
+  issuedAt           DateTime?        @map("issued_at") @db.Timestamptz(3)
+  decidedById        String?          @map("decided_by_id") @db.Uuid
+  decidedAt          DateTime?        @map("decided_at") @db.Timestamptz(3)
+  decisionChannel    DecisionChannel? @map("decision_channel")
+  decisionNote       String?          @map("decision_note") @db.VarChar(1000)
+  /// The exact total that was approved (quotations_approved_chk).
+  approvedTotalCents Int?             @map("approved_total_cents")
+  version            Int              @default(0)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  repairJob RepairJob       @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+  createdBy User            @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  issuedBy  User?           @relation("QuotationIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+  decidedBy User?           @relation("QuotationDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+  lines     QuotationLine[]
+
+  @@unique([repairJobId, revision])
+  @@map("quotations")
+}
+
+enum QuotationLineKind {
+  LABOUR
+  PART
+  OTHER
+}
+
+model QuotationLine {
+  id                 String            @id @default(uuid()) @db.Uuid
+  quotationId        String            @map("quotation_id") @db.Uuid
+  position           Int
+  kind               QuotationLineKind
+  description        String            @db.VarChar(300)
+  /// Quantity x 100, so 1.5 hours is 150. Keeps money arithmetic in integers.
+  quantityHundredths Int               @map("quantity_hundredths")
+  unitPriceCents     Int               @map("unit_price_cents")
+  lineTotalCents     Int               @map("line_total_cents")
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationId, position])
+  @@map("quotation_lines")
+}
+
+/// Saved results of requests sent with an Idempotency-Key header. The key row is
+/// written in the same transaction as the change, so a request is applied at most once.
+model IdempotencyKey {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  key            String   @db.VarChar(128)
+  /// SHA-256 of method, path and body; the same key with a different request is refused.
+  requestHash    String   @map("request_hash") @db.Char(64)
+  responseStatus Int?     @map("response_status")
+  responseBody   Json?    @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: inventory
+// ---------------------------------------------------------------------------
+
+enum PartCategory {
+  SCREEN
+  BATTERY
+  STORAGE
+  MEMORY
+  KEYBOARD
+  POWER
+  CABLE
+  BOARD
+  PERIPHERAL
+  CONSUMABLE
+  OTHER
+}
+
+/// A stocked spare part or consumable, counted in whole units.
+/// Never hard-deleted; archiving needs the stock to be zero (parts_archived_empty_chk).
+model Part {
+  id               String       @id @default(uuid()) @db.Uuid
+  /// Stock-keeping unit, trimmed and upper-cased by the API (parts_sku_normalised_chk).
+  sku              String       @unique @db.VarChar(40)
+  name             String       @db.VarChar(160)
+  category         PartCategory @default(OTHER)
+  description      String?      @db.VarChar(1000)
+  /// Shelf or bin, e.g. "A3-02".
+  location         String?      @db.VarChar(40)
+  /// Units in stock. Never negative (parts_quantity_chk), and always equal to the sum
+  /// of the part's stock movements (deferred trigger parts_balance_matches_ledger).
+  quantityOnHand   Int          @default(0) @map("quantity_on_hand")
+  /// Low-stock alert when quantityOnHand <= reorderLevel.
+  reorderLevel     Int          @default(0) @map("reorder_level")
+  /// Weighted average cost per unit in cents. Only purchases change it.
+  averageCostCents Int          @default(0) @map("average_cost_cents")
+  isActive         Boolean      @default(true) @map("is_active")
+  /// Optimistic-concurrency counter for the part's details. Stock changes do not
+  /// increment it: they are guarded by conditional updates instead.
+  version          Int          @default(0)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  movements StockMovement[]
+
+  @@index([name])
+  @@index([category, isActive])
+  @@map("parts")
+}
+
+enum StockMovementType {
+  PURCHASE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  REPAIR_CONSUMPTION
+  REPAIR_RETURN
+}
+
+/// The stock ledger. Append-only (trigger stock_movements_guard): mistakes are corrected
+/// with a new, opposite movement, never by editing or deleting one.
+model StockMovement {
+  id             String            @id @default(uuid()) @db.Uuid
+  partId         String            @map("part_id") @db.Uuid
+  type           StockMovementType
+  /// Signed: positive adds stock, negative removes it (stock_movements_sign_chk).
+  quantityChange Int               @map("quantity_change")
+  /// Units in stock straight after this movement.
+  balanceAfter   Int               @map("balance_after")
+  /// Cents per unit: the price paid for a purchase, otherwise the cost at the time.
+  unitCostCents  Int               @map("unit_cost_cents")
+  /// Purchases only.
+  supplier       String?           @db.VarChar(160)
+  /// Supplier invoice or order number (purchases).
+  reference      String?           @db.VarChar(80)
+  /// Required for adjustments (stock_movements_note_chk).
+  note           String?           @db.VarChar(1000)
+  /// Set exactly for repair consumption and returns (stock_movements_repair_chk).
+  repairJobId    String?           @map("repair_job_id") @db.Uuid
+  actorUserId    String            @map("actor_user_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  part      Part       @relation(fields: [partId], references: [id], onDelete: Restrict)
+  repairJob RepairJob? @relation(fields: [repairJobId], references: [id], onDelete: Restrict)
+  actor     User       @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([partId, createdAt])
+  @@index([repairJobId, partId])
+  @@index([type, createdAt])
+  @@index([createdAt])
+  @@map("stock_movements")
+}

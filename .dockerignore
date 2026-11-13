@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/coverage
+apps/api/src/generated
+.git
+.env
+.env.*
+!.env.example
+**/*.log
+playwright-report
+test-results
+.claude

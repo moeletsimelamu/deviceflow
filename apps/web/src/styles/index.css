@@ -1,0 +1,128 @@
+@import 'tailwindcss';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
+ * DeviceFlow design tokens. See docs/DESIGN.md.
+ * Components use these semantic names, never raw palette values, so the theme
+ * can change (including a future dark mode) without touching components.
+ */
+:root {
+  /* Surfaces: warm stone neutrals, borders over shadows. */
+  --df-canvas: #f6f5f3;
+  --df-surface: #ffffff;
+  --df-surface-sunken: #efeeeb;
+  --df-sidebar: #1c1917;
+  --df-sidebar-muted: #a8a29e;
+  --df-sidebar-active: #292524;
+  --df-border: #e2e0dc;
+  --df-border-strong: #c9c6c0;
+
+  /* Text */
+  --df-ink: #1c1917;
+  --df-ink-muted: #57534e;
+  --df-ink-subtle: #78716c;
+  --df-ink-inverse: #fafaf9;
+
+  /* Brand accent: deep petrol teal. Used sparingly, for primary actions and focus. */
+  --df-accent: #115e59;
+  --df-accent-hover: #134e4a;
+  --df-accent-soft: #e6f2f0;
+  --df-accent-bright: #5eead4;
+  --df-focus: #0d9488;
+
+  /* Status tones: each has a soft background and a strong foreground. */
+  --df-success-bg: #e8f3ea;
+  --df-success-fg: #1e6b34;
+  --df-warning-bg: #fbf1dc;
+  --df-warning-fg: #8a5a00;
+  --df-danger-bg: #fbe9e7;
+  --df-danger-fg: #a12a1f;
+  --df-info-bg: #e7eef8;
+  --df-info-fg: #1f4f8f;
+  --df-neutral-bg: #efeeeb;
+  --df-neutral-fg: #44403c;
+
+  /*
+   * Chart series, in fixed order (DESIGN.md, Reports). Validated on the white
+   * surface: colour-blind separation dE 24.7, both above 3:1 contrast.
+   * Series colours are for marks only; text always uses the ink tokens.
+   */
+  --df-chart-1: #2a78d6;
+  --df-chart-2: #eb6834;
+
+  --df-radius-sm: 4px;
+  --df-radius: 6px;
+  --df-radius-lg: 10px;
+}
+
+@theme inline {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-canvas: var(--df-canvas);
+  --color-surface: var(--df-surface);
+  --color-sunken: var(--df-surface-sunken);
+  --color-sidebar: var(--df-sidebar);
+  --color-sidebar-muted: var(--df-sidebar-muted);
+  --color-sidebar-active: var(--df-sidebar-active);
+  --color-line: var(--df-border);
+  --color-line-strong: var(--df-border-strong);
+  --color-ink: var(--df-ink);
+  --color-ink-muted: var(--df-ink-muted);
+  --color-ink-subtle: var(--df-ink-subtle);
+  --color-ink-inverse: var(--df-ink-inverse);
+  --color-accent: var(--df-accent);
+  --color-accent-hover: var(--df-accent-hover);
+  --color-accent-soft: var(--df-accent-soft);
+  --color-accent-bright: var(--df-accent-bright);
+  --color-focus: var(--df-focus);
+  --color-success-bg: var(--df-success-bg);
+  --color-success-fg: var(--df-success-fg);
+  --color-warning-bg: var(--df-warning-bg);
+  --color-warning-fg: var(--df-warning-fg);
+  --color-danger-bg: var(--df-danger-bg);
+  --color-danger-fg: var(--df-danger-fg);
+  --color-info-bg: var(--df-info-bg);
+  --color-info-fg: var(--df-info-fg);
+  --color-neutral-bg: var(--df-neutral-bg);
+  --color-neutral-fg: var(--df-neutral-fg);
+  --color-chart-1: var(--df-chart-1);
+  --color-chart-2: var(--df-chart-2);
+
+  --radius-sm: var(--df-radius-sm);
+  --radius-md: var(--df-radius);
+  --radius-lg: var(--df-radius-lg);
+
+  --text-2xs: 0.6875rem;
+}
+
+@layer base {
+  html {
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: 'tnum' 0;
+  }
+  :focus-visible {
+    outline: 2px solid var(--df-focus);
+    outline-offset: 2px;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

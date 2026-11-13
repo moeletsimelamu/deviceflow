@@ -1,0 +1,47 @@
+{
+  "name": "deviceflow",
+  "private": true,
+  "description": "DeviceFlow — device lifecycle and repair management platform",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22.12.0 <23 || >=24",
+    "npm": ">=11.21.1"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @deviceflow/api\" \"npm run dev -w @deviceflow/web\"",
+    "build": "npm run build -w @deviceflow/shared && npm run build -w @deviceflow/api && npm run build -w @deviceflow/web",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @deviceflow/api",
+    "db:deploy": "npm run db:deploy -w @deviceflow/api",
+    "db:seed": "npm run db:seed -w @deviceflow/api",
+    "db:reset": "npm run db:reset -w @deviceflow/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "concurrently": "10.0.7",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "jsdom": "29.1.1",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.0.5"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.1": true,
+    "argon2@0.45.2": true,
+    "esbuild@0.28.2": true,
+    "prisma@7.10.1": true
+  },
+  "packageManager": "npm@11.21.1"
+}

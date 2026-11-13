@@ -1,0 +1,196 @@
+import { Link } from 'react-router';
+import { ROLE_LABELS } from '@deviceflow/shared';
+import { CheckCircle2, Circle } from 'lucide-react';
+import { useCan, useCurrentUser } from '../auth/session';
+import { PageHeader, Panel } from '../../design/Page';
+import { Badge } from '../../design/Badge';
+import { ErrorState, Skeleton } from '../../design/States';
+import { StockStateBadge } from '../../lib/status';
+import { useParts } from '../inventory/api';
+
+/**
+ * Interim dashboard. Operational metrics arrive with the modules that produce
+ * them (Phase 6); until then this page is honest about what exists.
+ */
+const ROADMAP = [
+  {
+    phase: 2,
+    title: 'Foundation',
+    detail: 'Sign-in, roles, user administration, company settings, audit trail',
+    done: true,
+  },
+  {
+    phase: 3,
+    title: 'Assets & customers',
+    detail: 'Asset register, customer accounts and contacts, customer portal, activity log',
+    done: true,
+  },
+  {
+    phase: 4,
+    title: 'Repairs',
+    detail: 'Repair requests, diagnostics, quotations, approvals, status workflow',
+    done: true,
+  },
+  {
+    phase: 5,
+    title: 'Inventory',
+    detail: 'Parts, stock movements, consumption against repairs, low-stock alerts',
+    done: true,
+  },
+  {
+    phase: 6,
+    title: 'Reporting',
+    detail: 'Turnaround, revenue, workload and inventory dashboards',
+    done: true,
+  },
+];
+
+function greeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+/** Active parts at or below their reorder level (Phase 1: computed in the query, no background job). */
+function LowStockPanel() {
+  const low = useParts(
+    { search: '', category: '', stock: 'low', isActive: true, page: 1, sort: 'quantityOnHand:asc' },
+    5,
+  );
+  const total = low.data?.meta.total ?? 0;
+  return (
+    <Panel className="self-start">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <h2 className="text-sm font-semibold">Low stock</h2>
+        {total > 0 && <Badge tone="warning">{total}</Badge>}
+      </div>
+      {low.isPending ? (
+        <Skeleton className="m-5 h-10" />
+      ) : low.isError ? (
+        <ErrorState error={low.error} onRetry={() => low.refetch()} />
+      ) : total === 0 ? (
+        <p className="px-5 py-4 text-[13px] text-ink-muted">
+          Every part is above its reorder level.
+        </p>
+      ) : (
+        <>
+          <ul className="divide-y divide-line">
+            {low.data.data.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                <Link
+                  to={`/inventory/parts/${p.id}`}
+                  className="min-w-0 truncate text-sm hover:text-accent hover:underline"
+                >
+                  {p.name}
+                </Link>
+                <span className="flex shrink-0 items-center gap-2">
+                  <StockStateBadge state={p.stockState} />
+                  <span className="text-sm font-medium tabular-nums">{p.quantityOnHand}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link
+            to="/inventory?stock=low"
+            className="block border-t border-line px-5 py-3 text-sm font-medium text-accent hover:underline"
+          >
+            {total > low.data.data.length ? `All ${total} low-stock parts →` : 'Open inventory →'}
+          </Link>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+export function DashboardPage() {
+  const user = useCurrentUser();
+  const canManageUsers = useCan('users:manage');
+  const canSeeStock = useCan('inventory:read');
+  const canSeeReports = useCan('reports:inventory');
+  const firstName = user.fullName.split(' ')[0];
+
+  return (
+    <>
+      <PageHeader
+        title={`${greeting()}, ${firstName}`}
+        description={
+          <>
+            Signed in as <Badge tone="accent">{ROLE_LABELS[user.role]}</Badge>
+          </>
+        }
+      />
+
+      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+        <Panel>
+          <div className="border-b border-line px-5 py-3.5">
+            <h2 className="text-sm font-semibold">Platform build-out</h2>
+            <p className="mt-0.5 text-[13px] text-ink-muted">
+              {canSeeReports ? (
+                <>
+                  Repair, revenue and stock figures are on the{' '}
+                  <Link to="/reports" className="font-medium text-accent hover:underline">
+                    Reports
+                  </Link>{' '}
+                  page.
+                </>
+              ) : (
+                'What DeviceFlow can do today, module by module.'
+              )}
+            </p>
+          </div>
+          <ol className="divide-y divide-line">
+            {ROADMAP.map((item) => (
+              <li key={item.phase} className="flex items-start gap-3 px-5 py-3.5">
+                {item.done ? (
+                  <CheckCircle2
+                    size={18}
+                    className="mt-px shrink-0 text-success-fg"
+                    aria-label="Available"
+                  />
+                ) : (
+                  <Circle
+                    size={18}
+                    className="mt-px shrink-0 text-line-strong"
+                    aria-label="Planned"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    {item.title}
+                    <span className="ml-2 font-mono text-[11px] text-ink-subtle">
+                      Phase {item.phase}
+                    </span>
+                  </p>
+                  <p className="text-[13px] text-ink-muted">{item.detail}</p>
+                </div>
+                {item.done && <Badge tone="success">Available</Badge>}
+              </li>
+            ))}
+          </ol>
+        </Panel>
+
+        <div className="space-y-5">
+          {canSeeStock && <LowStockPanel />}
+          {canManageUsers && (
+            <Panel>
+              <div className="px-5 py-4">
+                <h2 className="text-sm font-semibold">Administration</h2>
+                <p className="mt-1 text-[13px] text-ink-muted">
+                  Create staff accounts and set the company currency and VAT rate used on
+                  quotations.
+                </p>
+                <div className="mt-4 flex flex-col gap-2 text-sm">
+                  <Link to="/admin/users" className="font-medium text-accent hover:underline">
+                    Manage users →
+                  </Link>
+                  <Link to="/admin/settings" className="font-medium text-accent hover:underline">
+                    Company settings →
+                  </Link>
+                </div>
+              </div>
+            </Panel>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

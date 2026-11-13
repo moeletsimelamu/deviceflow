@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: deviceflow
+          # CI-only credential for a throwaway service container.
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: deviceflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U deviceflow -d deviceflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # DATABASE_URL only has to be valid for config loading; tests use TEST_DATABASE_URL.
+      DATABASE_URL: postgresql://deviceflow:ci_only_password@localhost:5432/deviceflow
+      TEST_DATABASE_URL: postgresql://deviceflow:ci_only_password@localhost:5432/deviceflow_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Use the project's npm version
+        run: npm install -g npm@11.21.1
+
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  docker:
+    name: Build container images
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build images
+        run: |
+          cp .env.example .env
+          docker compose build
