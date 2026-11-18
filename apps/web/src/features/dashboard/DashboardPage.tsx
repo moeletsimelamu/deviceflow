@@ -1,49 +1,14 @@
 import { Link } from 'react-router';
 import { ROLE_LABELS } from '@deviceflow/shared';
-import { CheckCircle2, Circle } from 'lucide-react';
 import { useCan, useCurrentUser } from '../auth/session';
-import { PageHeader, Panel } from '../../design/Page';
+import { PageHeader, Panel, PanelHeader } from '../../design/Page';
 import { Badge } from '../../design/Badge';
-import { ErrorState, Skeleton } from '../../design/States';
+import { EmptyState, ErrorState, Skeleton, TableSkeleton } from '../../design/States';
 import { StockStateBadge } from '../../lib/status';
 import { useParts } from '../inventory/api';
-
-/**
- * Interim dashboard. Operational metrics arrive with the modules that produce
- * them (Phase 6); until then this page is honest about what exists.
- */
-const ROADMAP = [
-  {
-    phase: 2,
-    title: 'Foundation',
-    detail: 'Sign-in, roles, user administration, company settings, audit trail',
-    done: true,
-  },
-  {
-    phase: 3,
-    title: 'Assets & customers',
-    detail: 'Asset register, customer accounts and contacts, customer portal, activity log',
-    done: true,
-  },
-  {
-    phase: 4,
-    title: 'Repairs',
-    detail: 'Repair requests, diagnostics, quotations, approvals, status workflow',
-    done: true,
-  },
-  {
-    phase: 5,
-    title: 'Inventory',
-    detail: 'Parts, stock movements, consumption against repairs, low-stock alerts',
-    done: true,
-  },
-  {
-    phase: 6,
-    title: 'Reporting',
-    detail: 'Turnaround, revenue, workload and inventory dashboards',
-    done: true,
-  },
-];
+import { useRepairs } from '../repairs/api';
+import { RepairTable } from '../repairs/RepairsPage';
+import { Wrench } from 'lucide-react';
 
 function greeting() {
   const hour = new Date().getHours();
@@ -101,6 +66,60 @@ function LowStockPanel() {
   );
 }
 
+/**
+ * The open jobs changed most recently. The API scopes the list by role: technicians
+ * get only their own jobs, inventory managers only jobs with parts used.
+ */
+function OpenRepairsPanel({ showReportsLink }: { showReportsLink: boolean }) {
+  const repairs = useRepairs(
+    { search: '', state: 'open', status: '', technician: '', page: 1, sort: 'updatedAt:desc' },
+    5,
+  );
+  const total = repairs.data?.meta.total ?? 0;
+  return (
+    <Panel className="self-start">
+      <PanelHeader
+        title="Open repairs"
+        description={
+          showReportsLink ? (
+            <>
+              Revenue, turnaround and stock figures are on the{' '}
+              <Link to="/reports" className="font-medium text-accent hover:underline">
+                Reports
+              </Link>{' '}
+              page.
+            </>
+          ) : (
+            'The open jobs changed most recently.'
+          )
+        }
+        actions={total > 0 && <Badge tone="info">{total}</Badge>}
+      />
+      {repairs.isPending ? (
+        <TableSkeleton columns={4} rows={3} />
+      ) : repairs.isError ? (
+        <ErrorState error={repairs.error} onRetry={() => repairs.refetch()} />
+      ) : total === 0 ? (
+        <EmptyState
+          icon={Wrench}
+          title="No open repairs"
+          description="Nothing is waiting on the workshop."
+        />
+      ) : (
+        <>
+          <RepairTable repairs={repairs.data.data} showDevice={false} compact />
+          <Link
+            to="/repairs"
+            className="block border-t border-line px-5 py-3 text-sm font-medium text-accent hover:underline"
+          >
+            {total > repairs.data.data.length ? `All ${total} open repairs →` : 'All repairs →'}
+          </Link>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export function DashboardPage() {
   const user = useCurrentUser();
   const canManageUsers = useCan('users:manage');
@@ -120,53 +139,7 @@ export function DashboardPage() {
       />
 
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
-        <Panel>
-          <div className="border-b border-line px-5 py-3.5">
-            <h2 className="text-sm font-semibold">Platform build-out</h2>
-            <p className="mt-0.5 text-[13px] text-ink-muted">
-              {canSeeReports ? (
-                <>
-                  Repair, revenue and stock figures are on the{' '}
-                  <Link to="/reports" className="font-medium text-accent hover:underline">
-                    Reports
-                  </Link>{' '}
-                  page.
-                </>
-              ) : (
-                'What DeviceFlow can do today, module by module.'
-              )}
-            </p>
-          </div>
-          <ol className="divide-y divide-line">
-            {ROADMAP.map((item) => (
-              <li key={item.phase} className="flex items-start gap-3 px-5 py-3.5">
-                {item.done ? (
-                  <CheckCircle2
-                    size={18}
-                    className="mt-px shrink-0 text-success-fg"
-                    aria-label="Available"
-                  />
-                ) : (
-                  <Circle
-                    size={18}
-                    className="mt-px shrink-0 text-line-strong"
-                    aria-label="Planned"
-                  />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
-                    {item.title}
-                    <span className="ml-2 font-mono text-[11px] text-ink-subtle">
-                      Phase {item.phase}
-                    </span>
-                  </p>
-                  <p className="text-[13px] text-ink-muted">{item.detail}</p>
-                </div>
-                {item.done && <Badge tone="success">Available</Badge>}
-              </li>
-            ))}
-          </ol>
-        </Panel>
+        <OpenRepairsPanel showReportsLink={canSeeReports} />
 
         <div className="space-y-5">
           {canSeeStock && <LowStockPanel />}

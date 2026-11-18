@@ -50,10 +50,12 @@ locally. It would **not** work on a plain-HTTP public host, by design.
 
 1. **verify:** `npm ci` (npm 11.21.1) → Prettier check → ESLint → typecheck → all
    tests against a Postgres 17 service container → production build.
-2. **docker:** builds both images with Compose.
+2. **Container images and end-to-end tests:** builds both images, starts the stack
+   behind nginx (`docker/compose.e2e.yml`), seeds it with a random password made for
+   the run, and runs the Playwright suite against it. On failure it uploads the
+   Playwright report and prints the stack's logs.
 
-The workflow has not run on GitHub yet, because the repository has no remote so far.
-Its first run is the real check.
+The workflow has run on GitHub since Phase 7 (first green run on pull request #1).
 
 ## To do in Phase 8
 

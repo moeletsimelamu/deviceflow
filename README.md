@@ -1,19 +1,71 @@
 # DeviceFlow
 
-Device lifecycle and repair management for technology service providers that look
-after devices for schools, businesses and individual customers.
+**Device lifecycle and repair management for technology service providers** that look
+after laptops, tablets and printers for schools, businesses and individual customers.
+DeviceFlow keeps the asset register, the repair workshop, spare-parts stock and the
+customer's own view of their devices in one accountable record.
 
-> **Status: Phase 7 (quality) complete.** Sign-in, roles, staff users, company
-> settings, customers, the asset register, the activity log, repair jobs (booking in,
-> assignment, diagnosis notes, labour, quotation revisions, approval and rejection,
-> the full status workflow), the customer portal (own devices, repair requests,
-> quotation approval) and inventory (parts, deliveries, adjustments, the stock ledger,
-> parts used on repairs, low-stock alerts) and reports (billed revenue, turnaround,
-> workload, parts consumption, stock value) work end to end. Phase 7 added an
-> authorisation matrix over every endpoint, an error-handling and security review,
-> an accessibility pass (WCAG 2.2 AA, checked with axe on every screen) and
-> Playwright tests of the definition-of-done flow. Phase 8 is deployment.
-> See [docs/PHASE-1-DISCOVERY.md](docs/PHASE-1-DISCOVERY.md) for the full roadmap.
+[![CI](https://github.com/moeletsimelamu/deviceflow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/moeletsimelamu/deviceflow/actions/workflows/ci.yml)
+![Node.js 22](https://img.shields.io/badge/node-22-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
+![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169e1?logo=postgresql&logoColor=white)
+![WCAG 2.2 AA](https://img.shields.io/badge/accessibility-WCAG_2.2_AA-115e59)
+
+![A repair job awaiting the customer's approval: the quotation with VAT, the device, the customer contact and the job summary](docs/screenshots/repair-detail.png)
+
+## What it does
+
+| Area                   | What you can do                                                                                                                                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Repairs**            | Book a device in, assign a technician, record diagnosis notes and labour, issue quotations with VAT, get the customer's approval, then repair, quality-check, complete and close. A state machine allows only valid moves per role. |
+| **Customer portal**    | Customers see only their own organisation's devices and repairs, request repairs, and approve or decline quotations online.                                                                                                         |
+| **Assets & customers** | A register of every device with generated asset tags, warranty status, ownership and a full lifecycle history; customer accounts with contacts and portal users.                                                                    |
+| **Inventory**          | Parts with reorder levels, deliveries at weighted average cost, adjustments with reasons, parts used on repairs, and an append-only stock ledger. Stock can never go below zero, even under concurrent use.                         |
+| **Reports**            | Billed revenue, jobs completed, turnaround, open jobs by status, technician workload, parts consumption and stock value for any date range. Every chart can also be read as a table.                                                |
+| **Administration**     | Staff users and roles, company settings (currency and VAT rate), and an activity log of who changed what, and when.                                                                                                                 |
+
+Four roles (administrator, technician, inventory manager and customer) each see only
+what they need: technicians work their own jobs, inventory managers see stock and the
+parts side of repairs, and customers see only their own records.
+
+## Screenshots
+
+|                                                                                          |                                                                                                        |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ![Staff dashboard with open repairs and low-stock parts](docs/screenshots/dashboard.png) | ![Inventory: parts with stock levels, reorder points and average cost](docs/screenshots/inventory.png) |
+| **Dashboard:** open repairs and low stock at a glance                                    | **Inventory:** stock, reorder levels and average cost                                                  |
+| ![Reports: revenue, completed jobs, turnaround and charts](docs/screenshots/reports.png) | ![Customer portal: a school's own devices with status and warranty](docs/screenshots/portal.png)       |
+| **Reports:** revenue, turnaround and workload by date range                              | **Customer portal:** a customer's own devices and repairs                                              |
+
+Screenshots show the built-in demo data.
+
+## Engineering highlights
+
+- **Authorisation tested end to end.** A hand-written matrix calls each of the 72 API
+  operations signed out and as every role, and a route count ties it to what the
+  server actually mounts, so no endpoint ships without a decision about who may call
+  it.
+- **One set of rules on both sides.** Zod schemas, roles, permissions, the repair state
+  machine and money calculations live in a shared package used by the API and the web
+  app.
+- **Money and stock done carefully.** Amounts are integer cents in ZAR with VAT; stock
+  changes are row-locked database transactions recorded in an immutable ledger.
+- **Accessible by default.** Every screen passes axe-core's WCAG 2.2 AA rules, with
+  separate keyboard tests for focus, dialogs and the skip link.
+- **Tested at every layer.** About 580 unit and integration tests (Vitest and Supertest
+  against a real PostgreSQL), plus Playwright browser tests of the full repair flow
+  from booking in to the revenue report, run in CI against the production Docker
+  images behind nginx.
+- **Secure sessions.** HTTP-only cookie sessions with idle and absolute expiry, CSRF
+  protection, sign-in rate limiting, strict security headers and an audit trail.
+
+## Project status
+
+Phases 1 to 7 of the [roadmap](docs/PHASE-1-DISCOVERY.md) are complete: every module
+above works end to end and is covered by the tests. **Production deployment (Phase 8)
+has not been done yet.** DeviceFlow runs locally and as a Docker Compose stack, but it
+is not hosted anywhere. Known limitations are listed in
+[SECURITY.md](docs/SECURITY.md#known-limitations).
 
 ## Stack
 
@@ -22,11 +74,14 @@ after devices for schools, businesses and individual customers.
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 8, TanStack Query 5, Tailwind CSS 4, Radix |
 | Backend  | Node.js 22, Express 5, Prisma 7, Zod 4, pino                                            |
 | Database | PostgreSQL 17                                                                           |
-| Tooling  | npm workspaces, Vitest, Supertest, ESLint, Prettier, Docker Compose, GitHub Actions     |
+| Testing  | Vitest, Supertest, Playwright, axe-core                                                 |
+| Tooling  | npm workspaces, ESLint, Prettier, Docker Compose, nginx, GitHub Actions                 |
 
 Exact versions and why they were chosen: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#versions).
 
-## Prerequisites
+## Getting started
+
+### Prerequisites
 
 - **Node.js 22.13 or newer** (22.22+ recommended; see `.nvmrc`)
 - **npm 11.21.1** for installs. npm 10.x fails on this dependency tree with
@@ -34,7 +89,7 @@ Exact versions and why they were chosen: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
   `npm install -g npm@11.21.1`, or prefix installs with `npx -y npm@11.21.1`.
 - **Docker Desktop** (or Docker Engine with Compose v2)
 
-## Quick start: local development
+### Local development
 
 ```bash
 cp .env.example .env              # development-only values; edit if you like
@@ -45,7 +100,7 @@ npm run db:seed                   # demo users (development only)
 npm run dev                       # API on :3000, web on http://localhost:5173
 ```
 
-## Quick start: full stack in Docker
+### Full stack in Docker
 
 ```bash
 cp .env.example .env
@@ -55,10 +110,10 @@ docker compose --profile demo run --rm seed   # demo users
 
 Open <http://localhost:8080>.
 
-## Development sign-in
+### Demo sign-in
 
-The seed creates one user per staff role. Every demo user's password is the
-value of `SEED_DEFAULT_PASSWORD` in your `.env` (see `.env.example`).
+The seed creates one user per role. Every demo user's password is the value of
+`SEED_DEFAULT_PASSWORD` in your `.env` (see `.env.example`).
 
 | Role              | Email                       |
 | ----------------- | --------------------------- |
@@ -115,10 +170,11 @@ apps/web         React single-page app
 packages/shared  Zod schemas, roles and permissions shared by API and web
 e2e/             Playwright end-to-end and accessibility tests
 docker/          Dockerfiles, nginx config, Postgres init script, e2e stack override
-docs/            Project documentation
+docs/            Project documentation and screenshots
 ```
 
-## Business workflows available now
+<details>
+<summary><strong>Walkthrough: the main workflows, step by step</strong></summary>
 
 1. **Register a customer** (Customers → New customer). Add contacts and, if the
    customer should use the portal, a portal user.
@@ -157,3 +213,11 @@ docs/            Project documentation
     date range and see billed revenue, completed jobs, turnaround, open jobs by status
     and technician workload (administrators), and parts used, stock received, stock
     value and low stock (both roles). Every chart can be shown as a table.
+
+</details>
+
+## Licence
+
+Copyright © 2026 Junior Melamu. All rights reserved. The source is public to read,
+but it may not be used, copied or distributed without permission. See
+[LICENSE](LICENSE).
