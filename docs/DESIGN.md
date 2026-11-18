@@ -28,7 +28,7 @@ variables.
 | -------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | Surfaces | canvas, surface, sunken, sidebar                             | `#f6f5f3`, `#ffffff`, `#efeeeb`, `#1c1917`                                              |
 | Lines    | line, line-strong                                            | `#e2e0dc`, `#c9c6c0`                                                                    |
-| Text     | ink, ink-muted, ink-subtle, ink-inverse                      | `#1c1917`, `#57534e`, `#78716c`, `#fafaf9`                                              |
+| Text     | ink, ink-muted, ink-subtle, ink-inverse                      | `#1c1917`, `#57534e`, `#6f6863`, `#fafaf9`                                              |
 | Accent   | accent, accent-hover, accent-soft, accent-bright             | `#115e59`, `#134e4a`, `#e6f2f0`, `#5eead4`                                              |
 | Status   | success, warning, danger, info, neutral (each `-bg` / `-fg`) | Soft background with a strong foreground; foregrounds meet WCAG AA on their backgrounds |
 
@@ -132,6 +132,21 @@ wording (`PORTAL_REPAIR_STATUS_LABELS`, for example "Quote waiting for your appr
 - "Skip to content" link, landmarks (`nav`, `main`) and headings in order.
 - Respects `prefers-reduced-motion`.
 - Colour is never the only signal.
+- **Checked in Phase 7:** every screen passes axe-core's WCAG 2.2 A and AA rules
+  (`e2e/tests/accessibility.spec.ts`), and keyboard behaviour has its own tests.
+  Fixes made in that pass:
+  - Text contrast at least 4.5:1 on every background: `ink-subtle` darkened from
+    `#78716c` (4.1 to 4.4:1 on the canvas and sunken backgrounds) to `#6f6863`
+    (4.7:1 or better); sidebar section labels raised from 70% to 85% opacity (5.3:1).
+  - Panels with a header are named regions (`<section aria-labelledby>`), so
+    screen-reader users can jump between "Status history", "Parts" and so on.
+  - Dialogs return focus to the button that opened them when they close.
+  - Links stacked in a list (a contact's phone and email) are at least 24px tall
+    (WCAG 2.5.8). Note that `rem` is 14px here, so use pixel values for this
+    minimum: `min-h-6` is only 21px.
+  - A table that scrolls sideways on a phone and has no link in it takes keyboard
+    focus itself, so it can be scrolled with the arrow keys.
+  - Sidebar sections the role has no links in are hidden, heading and all.
 
 ## Repair screens
 

@@ -31,6 +31,64 @@ describe('error handling', () => {
     expect(res.body.error.code).toBe('MALFORMED_REQUEST');
   });
 
+  it('treats unreadable requests as client errors, not server errors', async () => {
+    const admin = await loginAs('ADMIN');
+    const cases = [
+      // An undecodable %-escape in a path parameter.
+      [await admin.get('/api/v1/assets/%E0%A4%A'), 400, 'MALFORMED_REQUEST'],
+      [await admin.get('/api/v1/assets/%'), 400, 'MALFORMED_REQUEST'],
+      // A body that claims to be compressed but is not.
+      [
+        await admin
+          .post('/api/v1/customers')
+          .set('Content-Type', 'application/json')
+          .set('Content-Encoding', 'gzip')
+          .send('{"name":"A"}'),
+        400,
+        'MALFORMED_REQUEST',
+      ],
+      // Encodings the API does not accept.
+      [
+        await admin
+          .post('/api/v1/customers')
+          .set('Content-Type', 'application/json')
+          .set('Content-Encoding', 'compress')
+          .send('{"name":"A"}'),
+        415,
+        'UNSUPPORTED_MEDIA_TYPE',
+      ],
+      [
+        await admin
+          .post('/api/v1/customers')
+          .set('Content-Type', 'application/json; charset=latin1')
+          .send('{"name":"A"}'),
+        415,
+        'UNSUPPORTED_MEDIA_TYPE',
+      ],
+    ] as const;
+    for (const [res, status, code] of cases) {
+      expect(res.status).toBe(status);
+      expect(res.body.error.code).toBe(code);
+      // The library's own message (which can quote internals) is not passed on.
+      expect(res.body.error.message).not.toMatch(/decode|zlib|incorrect header|charset "/i);
+      expect(res.body.error.requestId).toEqual(expect.any(String));
+    }
+  });
+
+  it('rejects bodies that are not a JSON object, and over-large bodies', async () => {
+    const admin = await loginAs('ADMIN');
+    for (const body of ['[]', '"text"', '42']) {
+      const res = await admin
+        .post('/api/v1/customers')
+        .set('Content-Type', 'application/json')
+        .send(body);
+      expect(res.status, body).toBe(400);
+    }
+    const huge = await admin.post('/api/v1/customers').send({ name: 'x'.repeat(200_000) });
+    expect(huge.status).toBe(413);
+    expect(huge.body.error.code).toBe('PAYLOAD_TOO_LARGE');
+  });
+
   it('propagates a request ID header and echoes it in errors', async () => {
     const res = await request(app).get('/api/v1/auth/me').set('X-Request-Id', 'trace-abc-12345');
     expect(res.headers['x-request-id']).toBe('trace-abc-12345');

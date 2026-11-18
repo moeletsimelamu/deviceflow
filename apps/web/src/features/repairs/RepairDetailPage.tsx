@@ -755,7 +755,7 @@ function RepairBody({ repair }: { repair: Repair }) {
                   {repair.contact.phone && (
                     <a
                       href={`tel:${repair.contact.phone}`}
-                      className="block text-accent hover:underline"
+                      className="block min-h-[24px] py-[3px] text-accent hover:underline"
                     >
                       {repair.contact.phone}
                     </a>
@@ -763,7 +763,7 @@ function RepairBody({ repair }: { repair: Repair }) {
                   {repair.contact.email && (
                     <a
                       href={`mailto:${repair.contact.email}`}
-                      className="block truncate text-accent hover:underline"
+                      className="block min-h-[24px] truncate py-[3px] text-accent hover:underline"
                     >
                       {repair.contact.email}
                     </a>

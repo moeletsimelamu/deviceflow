@@ -57,12 +57,23 @@ export async function api<T>(
     throw new ApiError(
       response.status,
       error?.code ?? 'INTERNAL_ERROR',
-      error?.message ?? `Request failed (${response.status})`,
+      error?.message ?? fallbackMessage(response.status),
       error?.details ?? [],
       error?.requestId,
     );
   }
   return body as T;
+}
+
+/**
+ * For error responses that did not come from the API itself, such as the
+ * proxy's page when the API is down or restarting.
+ */
+function fallbackMessage(status: number): string {
+  if (status === 502 || status === 503 || status === 504) {
+    return 'DeviceFlow is not responding right now. Try again in a moment.';
+  }
+  return `The request failed (error ${status}). Try again in a moment.`;
 }
 
 export function toQueryString(params: Record<string, string | number | boolean | undefined>) {

@@ -11,6 +11,8 @@ export default tseslint.config(
       '**/coverage/**',
       'apps/api/src/generated/**',
       'apps/api/prisma/migrations/**',
+      'e2e/playwright-report/**',
+      'e2e/test-results/**',
     ],
   },
   js.configs.recommended,
@@ -25,7 +27,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/api/**/*.ts', 'packages/shared/**/*.ts', '*.js'],
+    files: ['apps/api/**/*.ts', 'packages/shared/**/*.ts', 'e2e/**/*.ts', '*.js'],
     languageOptions: { globals: globals.node },
   },
   {

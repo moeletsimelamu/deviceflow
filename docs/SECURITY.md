@@ -31,6 +31,11 @@
   record-level rules, for example that an admin cannot demote themselves.
 - The UI hides what a role cannot do, but that is only convenience. Integration tests
   call endpoints directly as each role and assert `403`.
+- **Authorisation matrix (Phase 7).** `apps/api/test/integration/authz-matrix.test.ts`
+  holds a hand-written table of who may call each of the 72 API operations and calls
+  every operation signed out and as every role. The table must match the documented
+  operations exactly, and the number of routes the server mounts must match too, so
+  a new endpoint cannot ship without a decision about who may call it.
 - **Customer isolation.** Customers use only `/portal/*` endpoints (`portal:use`);
   every staff endpoint returns `403` to them. Portal services read the account id
   from the session, never from the request, and look records up with
@@ -93,6 +98,12 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
 - Web (nginx): CSP `default-src 'self'` (scripts self-only; inline styles allowed for
   UI positioning), `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`,
   a strict referrer policy and a permissions policy.
+- **One value per header (Phase 7).** nginx drops the API's own copies of
+  `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
+  `Content-Security-Policy` on proxied responses. Before this, API responses carried
+  `X-Frame-Options` twice with different values (`SAMEORIGIN` and `DENY`), and
+  browsers ignore that header when its values conflict. The end-to-end header test
+  checks each header appears exactly once.
 - In production, `COOKIE_SECURE=true` is required: the API refuses to start without
   it. TLS is terminated in front of nginx, so set `TRUST_PROXY` to the number of
   proxies in front of the API.
@@ -115,8 +126,26 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
 - npm 11's `allowScripts` permits install scripts only for argon2, prisma,
   @prisma/engines and esbuild. Each is pinned by version.
 - At the end of Phase 2, `npm audit --omit=dev` reported **0** vulnerabilities in
-  production dependencies. There are 10 moderate advisories in development-only
-  tooling; these are reviewed in Phase 7.
+  production dependencies.
+- **Phase 7 audit (2026-11-17).** Production dependencies: **0** vulnerabilities.
+  Development tooling: 15 advisories (7 high, 8 moderate), all from two advisories:
+  - **picomatch ReDoS** (GHSA-fc5q-39xc-vjpf; through vite, vitest, tinyglobby and
+    fdir). Every picomatch release is affected; there is no fixed version yet, and
+    npm's suggested "fix" is a major downgrade of Vitest and Vite. Not reachable
+    here: picomatch only matches glob patterns from our own config files (test
+    includes, the Vite build), never input from users, and none of it runs in the
+    production images.
+  - **minimatch denial of service** (GHSA-g3hv-75wg-m249; through ESLint and
+    typescript-eslint). Fixed in ESLint 10.15.0 and typescript-eslint 8.73.0, which
+    were 4 days and 1 day old at the time. Not reachable either: ESLint only reads
+    the repository's own glob patterns.
+  - **Decision:** not upgraded yet. New releases get at least a week before we adopt
+    them (a supply-chain precaution), and neither advisory can be reached by an
+    attacker. To do: upgrade ESLint and typescript-eslint after 2026-11-24, and take
+    a fixed picomatch when one is released.
+- Playwright and axe-core (Phase 7) are development-only, pinned exactly, and not
+  in the production images. Playwright downloads its Chromium build from its own
+  CDN with `npx playwright install chromium`.
 
 ## Bulk export
 
@@ -140,6 +169,35 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
   (see DATABASE.md).
 - The Compose database port is bound to `127.0.0.1` only.
 
+## Rate limits (Phase 7 review)
+
+- **Sign-in** is the only endpoint that guesses can be made against, and it is
+  limited per client address (failed attempts only). Behind nginx, `TRUST_PROXY=1`
+  makes the API use the address nginx saw, not one a client wrote into
+  `X-Forwarded-For`.
+- Every other endpoint needs a session, so abuse is tied to an account and is in
+  the audit log. Expensive operations are bounded instead of rate-limited: page
+  sizes are capped at 100, CSV exports at 10 000 rows, report ranges at 731 days,
+  request bodies at 100 kB (1 MB at nginx), and a device can have only one open
+  repair job, which limits portal repair requests.
+- There is no general per-address request limit. That belongs in front of the app
+  (nginx `limit_req` or the hosting platform) and is planned with the production
+  configuration in Phase 8.
+
+## Error handling (Phase 7 review)
+
+- Every error leaves the API in one shape (`{ error: { code, message, details?,
+requestId } }`). Unexpected errors return a generic message; the stack goes only
+  to the server log, with the request ID that the user sees as "Reference".
+- Malformed requests are client errors. Before Phase 7, an undecodable `%`-escape in
+  a URL, a corrupt compressed body or an unsupported encoding or charset returned
+  `500`; they now return `400` or `415`, and the library's own message, which can
+  quote internals, is not passed on.
+- In the web app, a crash in one page shows an error inside the app shell, so the
+  navigation still works; the technical message goes to the browser console, not
+  the screen. An error page from the proxy (for example while the API restarts)
+  says DeviceFlow is not responding instead of showing a bare status code.
+
 ## Known limitations
 
 | Limitation                                                                      | Plan                                                                              |
@@ -147,4 +205,5 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
 | The rate-limit store is in-memory, so it is per instance and resets on restart. | Use a shared store (Redis or Postgres) before running more than one API instance. |
 | No self-service password reset (needs email delivery).                          | Admin-set passwords for now. Revisit when notifications are added.                |
 | No MFA.                                                                         | Candidate for after v1.                                                           |
-| Development-only npm advisories are not yet triaged.                            | Phase 7 security review.                                                          |
+| Two development-only advisories (picomatch, minimatch) are open; see above.     | Upgrade ESLint after the cooling-off week; take a fixed picomatch when released.  |
+| No general per-address request rate limit.                                      | Add at the edge (nginx or the host) with the production configuration, Phase 8.   |

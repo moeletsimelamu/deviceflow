@@ -149,6 +149,11 @@ function UserMenu() {
 }
 
 function SidebarContent() {
+  const user = useCurrentUser();
+  // A section whose links this role cannot use is left out, heading and all.
+  const visibleGroups = NAV.filter((group) =>
+    group.items.some((item) => !item.permission || hasPermission(user.role, item.permission)),
+  );
   return (
     <>
       <div className="flex h-14 items-center gap-2 px-5">
@@ -158,10 +163,10 @@ function SidebarContent() {
         </span>
       </div>
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-2">
-        {NAV.map((group, i) => (
+        {visibleGroups.map((group, i) => (
           <div key={i} className="mb-4">
             {group.heading && (
-              <p className="mb-1 px-2.5 text-[11px] font-medium tracking-wider text-sidebar-muted/70 uppercase">
+              <p className="mb-1 px-2.5 text-[11px] font-medium tracking-wider text-sidebar-muted/85 uppercase">
                 {group.heading}
               </p>
             )}

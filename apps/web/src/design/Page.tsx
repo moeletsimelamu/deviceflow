@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useId, useLayoutEffect, useState, type ReactNode } from 'react';
 import { cn } from './cn';
 
 export function PageHeader({
@@ -21,11 +21,29 @@ export function PageHeader({
   );
 }
 
+/** Lets a PanelHeader name the panel it sits in. */
+const PanelContext = createContext<{
+  headingId: string;
+  setTitled: (titled: boolean) => void;
+} | null>(null);
+
+/**
+ * A titled block of a page. When it has a PanelHeader, the section is named by
+ * that heading, so screen readers list it as a region ("Status history region")
+ * and users can jump between the parts of a page.
+ */
 export function Panel({ children, className }: { children: ReactNode; className?: string }) {
+  const headingId = useId();
+  const [titled, setTitled] = useState(false);
   return (
-    <section className={cn('rounded-lg border border-line bg-surface', className)}>
-      {children}
-    </section>
+    <PanelContext.Provider value={{ headingId, setTitled }}>
+      <section
+        aria-labelledby={titled ? headingId : undefined}
+        className={cn('rounded-lg border border-line bg-surface', className)}
+      >
+        {children}
+      </section>
+    </PanelContext.Provider>
   );
 }
 
@@ -48,10 +66,18 @@ export function PanelHeader({
   description?: ReactNode;
   actions?: ReactNode;
 }) {
+  const panel = useContext(PanelContext);
+  const setTitled = panel?.setTitled;
+  useLayoutEffect(() => {
+    setTitled?.(true);
+    return () => setTitled?.(false);
+  }, [setTitled]);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
       <div>
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 id={panel?.headingId} className="text-sm font-semibold">
+          {title}
+        </h2>
         {description && <p className="mt-0.5 text-[13px] text-ink-muted">{description}</p>}
       </div>
       {actions && <div className="flex gap-2">{actions}</div>}

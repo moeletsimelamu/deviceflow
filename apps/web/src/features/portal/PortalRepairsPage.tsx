@@ -19,7 +19,10 @@ function RequestForm({ device, onClose }: { device?: PortalAsset; onClose: () =>
   const navigate = useNavigate();
   const request = useRequestRepair(useIdempotencyKey());
   // Only devices in use can be booked in; a device already in repair is not ACTIVE.
-  const devices = usePortalAssets({ search: '', status: 'ACTIVE', page: 1 });
+  // The API returns at most 100 per page; an account with more is told how to
+  // reach the others (each device's own page has "Request a repair").
+  const devices = usePortalAssets({ search: '', status: 'ACTIVE', page: 1, pageSize: 100 });
+  const totalDevices = devices.data?.meta.total ?? 0;
   const [assetId, setAssetId] = useState(device?.id ?? '');
   const [fault, setFault] = useState('');
   const [errors, setErrors] = useState<{ asset?: string; fault?: string }>({});
@@ -63,7 +66,9 @@ function RequestForm({ device, onClose }: { device?: PortalAsset; onClose: () =>
             hint={
               !devices.isPending && options.length === 0
                 ? 'None of your devices can be booked in right now. Devices already being repaired are not listed.'
-                : 'Devices already being repaired are not listed.'
+                : totalDevices > options.length
+                  ? `Showing ${options.length} of ${totalDevices} devices. For another one, open it under My devices and request the repair there.`
+                  : 'Devices already being repaired are not listed.'
             }
             options={[
               { value: '', label: devices.isPending ? 'Loading…' : 'Choose a device' },

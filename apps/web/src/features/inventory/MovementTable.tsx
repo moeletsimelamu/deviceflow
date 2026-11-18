@@ -61,7 +61,17 @@ export function MovementTable({
   dimmed?: boolean;
 }) {
   return (
-    <div className={table.wrap}>
+    // On a phone the table scrolls sideways. A movement row may contain no link,
+    // so the wrapper itself takes keyboard focus, letting arrow keys scroll it.
+    <div
+      className={cn(
+        table.wrap,
+        'focus-visible:ring-2 focus-visible:ring-focus/40 focus-visible:outline-none',
+      )}
+      tabIndex={0}
+      role="region"
+      aria-label="Stock movements"
+    >
       <table className={table.table}>
         <thead>
           <tr>

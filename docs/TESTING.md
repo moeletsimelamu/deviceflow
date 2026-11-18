@@ -1,11 +1,11 @@
 # Testing
 
-| Suite                          | Location                        | Runner                           | Needs database                           |
-| ------------------------------ | ------------------------------- | -------------------------------- | ---------------------------------------- |
-| Shared unit tests              | `packages/shared/src/*.test.ts` | Vitest                           | No                                       |
-| API unit and integration tests | `apps/api/test/**`              | Vitest + Supertest               | **Yes**, the real Postgres test database |
-| Web component tests            | `apps/web/src/**/*.test.tsx`    | Vitest + Testing Library (jsdom) | No                                       |
-| End-to-end                     | `e2e/` (Phase 7)                | Playwright                       | Full stack                               |
+| Suite                          | Location                        | Runner                           | Needs database                                    |
+| ------------------------------ | ------------------------------- | -------------------------------- | ------------------------------------------------- |
+| Shared unit tests              | `packages/shared/src/*.test.ts` | Vitest                           | No                                                |
+| API unit and integration tests | `apps/api/test/**`              | Vitest + Supertest               | **Yes**, the real Postgres test database          |
+| Web component tests            | `apps/web/src/**/*.test.tsx`    | Vitest + Testing Library (jsdom) | No                                                |
+| End-to-end                     | `e2e/tests/*.spec.ts`           | Playwright + axe-core (Chromium) | Its own database (`<db>_e2e`), or a running stack |
 
 ## Running
 
@@ -14,6 +14,39 @@ docker compose up -d db     # integration tests need Postgres
 npm test                    # every workspace
 npm test -w @deviceflow/api # one workspace
 ```
+
+### End-to-end tests
+
+```bash
+docker compose up -d db                              # Postgres, as above
+npx playwright install chromium                      # once: Playwright's browser
+npm run test:e2e                                     # whole suite
+npm run test:e2e -- definition-of-done               # one file
+npx playwright show-report e2e/playwright-report     # report, with traces of failures
+```
+
+By default Playwright starts its **own** API (port 3100) and web app (port 4173) against
+a separate database named after yours with `_e2e` added (`deviceflow_e2e`). Before every
+run that database is dropped, migrated and loaded with the demo data, and the demo users
+get a random password made for the run. Your development database and your
+`SEED_DEFAULT_PASSWORD` are never used. `e2e/scripts/prepare-db.ts` refuses any database
+whose name does not end in `_e2e`.
+
+To test the production images (nginx, the built web app, the compiled API) instead,
+start the separate e2e copy of the Docker stack and point the tests at it. This is
+what CI does:
+
+```bash
+export SEED_DEFAULT_PASSWORD=...   # any value of 12+ characters, for this stack only
+docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml up -d --build --wait
+docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml --profile demo run --rm seed
+E2E_BASE_URL=http://localhost:8081 npm run test:e2e
+docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml down -v
+```
+
+`docker/compose.e2e.yml` gives that stack its own project name, volume and ports
+(8081 and 5433), so your own demo stack on 8080 is untouched. The security-header
+tests run only in this mode, because only it has nginx in front.
 
 ## API integration tests
 
@@ -115,11 +148,36 @@ the last are counted, and events at `00:00:00.000` the day after are not.
 | Shared unit                 | Inclusive day counts across month and leap-year boundaries, default range, bucket thresholds, range validation, report permissions                                                                                                                                                                                                                                                                                                                                                                                       |
 | Web                         | Clean axis steps; every date preset (including January's "last month"); duration wording; chart periods named for screen readers; keyboard focus shows the same tooltip as hover; legend only for two series; chart to table toggle                                                                                                                                                                                                                                                                                      |
 
+### Phase 7 additions
+
+| Area                                | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authorisation matrix                | `authz-matrix.test.ts` calls **every one of the 72 API operations signed out and as each of the four roles** (360 calls). Who may call each operation is written out by hand, one line per operation, not derived from `roles.ts`, so a wrong grant fails the test. Refusals are `401` or `403` and contain nothing but the error. The matrix must list exactly the documented operations, and the number of mounted routes must equal the documented ones plus the three undocumented ones (the OpenAPI file and two health checks), so a route cannot be added without a matrix line. A deliberately wrong line was tried and the test failed, as it should.                                                                                            |
+| Error handling                      | An undecodable `%`-escape in the URL, a corrupt compressed body, an unsupported content encoding and a non-UTF-8 charset return `400` or `415` with the standard error body, not `500`; the library's own message is not passed on. Bodies that are not a JSON object return `400`; over-large bodies `413`. Web: an error page from the proxy (502, 503, 504) says DeviceFlow is not responding; a bug in a page shows a plain message, never the technical one.                                                                                                                                                                                                                                                                                         |
+| Definition of done (end to end)     | `definition-of-done.spec.ts` walks the brief's ten steps in the browser, as the people who would do them. The administrator signs in, registers a device for a customer, books it in and assigns a technician. The technician diagnoses, quotes (a labour line and a part line, R2 000.00 excl. VAT) and issues the quotation. **The customer approves it in the portal.** The technician starts the repair, uses an SSD from stock, records time, sends it to quality check and completes it. The test then checks the status history (all 8 entries, in order, each with who made it), the activity log, and that the reports grew by **exactly** one completed job, R2 000.00 billed and one part used, and that the reports page shows those figures. |
+| Portal request                      | A customer requests a repair for their own device in the portal; staff find it under Repairs, submitted and unassigned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Accessibility                       | `accessibility.spec.ts` scans **every screen** (25 screens and two dialogs, each as the role that uses it, with the seeded data loaded) with axe-core against WCAG 2.2 A and AA. No violation is allowed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Keyboard                            | Signing in with the keyboard only; the skip link moves focus past the navigation; focus stays inside an open dialog, Escape closes it and focus returns to the button that opened it; field errors set `aria-invalid` and are read as the field's description.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| What each role can reach            | A technician has no administration links and sees "no access" at `/admin/users`; a customer is kept to the portal at every staff address; a signed-out visitor is sent to sign in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Security headers (nginx stack only) | Each security header is sent exactly once on the app page, a client-side route and an API response; `X-Frame-Options: DENY`; a CSP with `frame-ancestors 'none'` and self-only scripts; no server version; API responses `no-store`; hashed assets cached for a year.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+Step 10 of the definition of done, "run automated tests", is `npm test` and
+`npm run test:e2e`.
+
 Phase 2 results: shared 12, API 33, web 6.
 Phase 3 results: shared 21, API 88, web 13.
 Phase 4 results: shared 32, API 373, web 18.
 Phase 5 results: shared 38, API 420, web 23.
-Phase 6 results: shared 43, API 429, web 30. All passing.
+Phase 6 results: shared 43, API 429, web 30.
+Phase 7 results: shared 43, API 504, web 33; end to end 15 against Playwright's own
+servers (the 5 nginx-only tests skipped) and 20 of 20 against the Docker images
+behind nginx. All passing.
+
+The nginx run found a bug the development server cannot show: Vite put the built
+files under `/assets/`, which is also the address of the device pages
+(`/assets/<id>`), so nginx answered a reload of a device page with its own 404.
+Built files now live under `/static/`, and a header test loads `/assets/<id>`
+directly to keep it fixed.
 
 Two Phase 3 tests changed with the rules: the asset lifecycle test now sends the device
 to repair through a repair job, and the activity-log test uses a retirement instead of

@@ -1,12 +1,13 @@
 {
   "name": "deviceflow",
   "private": true,
-  "description": "DeviceFlow — device lifecycle and repair management platform",
+  "description": "DeviceFlow \u2014 device lifecycle and repair management platform",
   "type": "module",
   "workspaces": [
     "packages/shared",
     "apps/api",
-    "apps/web"
+    "apps/web",
+    "e2e"
   ],
   "engines": {
     "node": ">=22.12.0 <23 || >=24",
@@ -20,6 +21,7 @@
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @deviceflow/e2e",
     "db:migrate": "npm run db:migrate -w @deviceflow/api",
     "db:deploy": "npm run db:deploy -w @deviceflow/api",
     "db:seed": "npm run db:seed -w @deviceflow/api",
@@ -43,5 +45,8 @@
     "esbuild@0.28.2": true,
     "prisma@7.10.1": true
   },
-  "packageManager": "npm@11.21.1"
+  "packageManager": "npm@11.21.1",
+  "overrides": {
+    "playwright-core": "1.65.0"
+  }
 }

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { Button } from './Button';
@@ -7,6 +7,11 @@ import { FormError } from './States';
 /**
  * Modal dialog built on Radix: focus trapping, Escape to close, scroll lock and
  * aria wiring come from the primitive.
+ *
+ * Our dialogs are opened from state, not from a Radix trigger, and Radix returns
+ * focus only to its own trigger. So the dialog remembers what had focus when it
+ * opened (the button that opened it) and puts focus back there when it closes;
+ * otherwise keyboard users are dropped at the top of the page.
  */
 export function Dialog({
   open,
@@ -23,6 +28,7 @@ export function Dialog({
   children: ReactNode;
   width?: string;
 }) {
+  const returnFocusTo = useRef<Element | null>(null);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -31,6 +37,15 @@ export function Dialog({
           // Capped to the viewport; tall forms scroll inside the body so the footer stays reachable.
           className={`fixed top-[max(16px,8vh)] left-1/2 z-50 flex max-h-[calc(100dvh-max(32px,16vh))] w-[calc(100vw-32px)] ${width} -translate-x-1/2 flex-col rounded-lg border border-line bg-surface shadow-[0_12px_40px_-12px_rgb(28_25_23/0.35)] focus:outline-none`}
           {...(description ? {} : { 'aria-describedby': undefined })}
+          // Runs before Radix moves focus into the dialog.
+          onOpenAutoFocus={() => {
+            returnFocusTo.current = document.activeElement;
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = returnFocusTo.current;
+            if (target instanceof HTMLElement && target.isConnected) target.focus();
+          }}
         >
           <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
             <div>

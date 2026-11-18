@@ -26,6 +26,18 @@ describe('api()', () => {
     });
   });
 
+  it('explains failures that did not come from the API, such as a proxy error page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('<html>502 Bad Gateway</html>', { status: 502 })),
+    );
+    await expect(api('/assets')).rejects.toMatchObject({
+      status: 502,
+      code: 'INTERNAL_ERROR',
+      message: 'DeviceFlow is not responding right now. Try again in a moment.',
+    });
+  });
+
   it('reports network failures distinctly', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     await expect(api('/auth/me')).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 });

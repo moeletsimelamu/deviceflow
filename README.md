@@ -3,13 +3,16 @@
 Device lifecycle and repair management for technology service providers that look
 after devices for schools, businesses and individual customers.
 
-> **Status: Phase 6 (reporting) complete.** Sign-in, roles, staff users, company
+> **Status: Phase 7 (quality) complete.** Sign-in, roles, staff users, company
 > settings, customers, the asset register, the activity log, repair jobs (booking in,
 > assignment, diagnosis notes, labour, quotation revisions, approval and rejection,
 > the full status workflow), the customer portal (own devices, repair requests,
 > quotation approval) and inventory (parts, deliveries, adjustments, the stock ledger,
 > parts used on repairs, low-stock alerts) and reports (billed revenue, turnaround,
-> workload, parts consumption, stock value) work end to end. Phase 7 is the quality pass.
+> workload, parts consumption, stock value) work end to end. Phase 7 added an
+> authorisation matrix over every endpoint, an error-handling and security review,
+> an accessibility pass (WCAG 2.2 AA, checked with axe on every screen) and
+> Playwright tests of the definition-of-done flow. Phase 8 is deployment.
 > See [docs/PHASE-1-DISCOVERY.md](docs/PHASE-1-DISCOVERY.md) for the full roadmap.
 
 ## Stack
@@ -83,6 +86,7 @@ demo profile does.
 | ------------------------------------ | ------------------------------------------------ |
 | `npm run dev`                        | API and web with reload                          |
 | `npm test`                           | All unit and integration tests (needs the db up) |
+| `npm run test:e2e`                   | Playwright end-to-end tests (see TESTING.md)     |
 | `npm run lint` / `npm run typecheck` | Static checks                                    |
 | `npm run format`                     | Prettier                                         |
 | `npm run db:migrate`                 | Create and apply a new migration (development)   |
@@ -109,7 +113,8 @@ demo profile does.
 apps/api         Express API, Prisma schema and migrations, tests
 apps/web         React single-page app
 packages/shared  Zod schemas, roles and permissions shared by API and web
-docker/          Dockerfiles, nginx config, Postgres init script
+e2e/             Playwright end-to-end and accessibility tests
+docker/          Dockerfiles, nginx config, Postgres init script, e2e stack override
 docs/            Project documentation
 ```
 

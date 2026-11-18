@@ -1,0 +1,21 @@
+# A separate copy of the Docker stack for the end-to-end tests, so they can run
+# against the production images (nginx, built web app, compiled API) without
+# touching your own demo stack: its own project name, database volume and ports.
+#
+#   docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml up -d --build --wait
+#   docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml --profile demo run --rm seed
+#   E2E_BASE_URL=http://localhost:8081 npm run test:e2e
+#   docker compose -p deviceflow-e2e -f docker-compose.yml -f docker/compose.e2e.yml down -v
+#
+# SEED_DEFAULT_PASSWORD must be set (in the shell or .env) for the seed and the tests.
+
+services:
+  db:
+    ports: !override
+      - '127.0.0.1:5433:5432'
+  api:
+    environment:
+      ALLOWED_ORIGINS: http://localhost:8081
+  web:
+    ports: !override
+      - '127.0.0.1:8081:80'

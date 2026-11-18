@@ -36,6 +36,7 @@ export const ERROR_CODES = [
   'RETURN_EXCEEDS_USAGE',
   'RATE_LIMITED',
   'PAYLOAD_TOO_LARGE',
+  'UNSUPPORTED_MEDIA_TYPE',
   'INTERNAL_ERROR',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

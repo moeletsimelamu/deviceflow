@@ -15,7 +15,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx --conditions=source --env-file-if-exists=../../.env prisma/seed.ts",
     "openapi": "tsx --conditions=source scripts/write-openapi.ts",
-    "db:reset": "prisma migrate reset --force --skip-seed && npm run db:seed",
+    "db:reset": "prisma migrate reset --force && npm run db:seed",
     "postinstall": "prisma generate"
   },
   "dependencies": {

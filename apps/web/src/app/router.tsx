@@ -54,40 +54,49 @@ export const router = createBrowserRouter([
           </RequireStaff>
         ),
         children: [
-          { index: true, element: <DashboardPage /> },
-          { path: 'repairs', element: guarded('repairs:read', <RepairsPage />) },
-          { path: 'repairs/:id', element: guarded('repairs:read', <RepairDetailPage />) },
-          { path: 'assets', element: guarded('assets:read', <AssetsPage />) },
-          { path: 'assets/:id', element: guarded('assets:read', <AssetDetailPage />) },
-          { path: 'inventory', element: guarded('inventory:read', <InventoryPage />) },
-          { path: 'inventory/movements', element: guarded('inventory:read', <MovementsPage />) },
           {
-            path: 'inventory/parts/:id',
-            element: guarded('inventory:read', <PartDetailPage />),
+            // A failing page shows its error inside the shell, keeping the navigation.
+            errorElement: <RouteError inline />,
+            children: [
+              { index: true, element: <DashboardPage /> },
+              { path: 'repairs', element: guarded('repairs:read', <RepairsPage />) },
+              { path: 'repairs/:id', element: guarded('repairs:read', <RepairDetailPage />) },
+              { path: 'assets', element: guarded('assets:read', <AssetsPage />) },
+              { path: 'assets/:id', element: guarded('assets:read', <AssetDetailPage />) },
+              { path: 'inventory', element: guarded('inventory:read', <InventoryPage />) },
+              {
+                path: 'inventory/movements',
+                element: guarded('inventory:read', <MovementsPage />),
+              },
+              {
+                path: 'inventory/parts/:id',
+                element: guarded('inventory:read', <PartDetailPage />),
+              },
+              // Everyone with reports:operations also has reports:inventory, so this
+              // admits both roles that see reports; the page shows each its sections.
+              { path: 'reports', element: guarded('reports:inventory', <ReportsPage />) },
+              { path: 'customers', element: guarded('customers:read', <CustomersPage />) },
+              { path: 'customers/:id', element: guarded('customers:read', <CustomerDetailPage />) },
+              { path: 'admin/activity', element: guarded('audit:read', <ActivityPage />) },
+              {
+                path: 'admin/users',
+                element: (
+                  <RequirePermission permission="users:read">
+                    <UsersPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'admin/settings',
+                element: (
+                  <RequirePermission permission="settings:read">
+                    <SettingsPage />
+                  </RequirePermission>
+                ),
+              },
+              { path: '*', element: <NotFoundPage /> },
+            ],
           },
-          // Everyone with reports:operations also has reports:inventory, so this
-          // admits both roles that see reports; the page shows each its sections.
-          { path: 'reports', element: guarded('reports:inventory', <ReportsPage />) },
-          { path: 'customers', element: guarded('customers:read', <CustomersPage />) },
-          { path: 'customers/:id', element: guarded('customers:read', <CustomerDetailPage />) },
-          { path: 'admin/activity', element: guarded('audit:read', <ActivityPage />) },
-          {
-            path: 'admin/users',
-            element: (
-              <RequirePermission permission="users:read">
-                <UsersPage />
-              </RequirePermission>
-            ),
-          },
-          {
-            path: 'admin/settings',
-            element: (
-              <RequirePermission permission="settings:read">
-                <SettingsPage />
-              </RequirePermission>
-            ),
-          },
-          { path: '*', element: <NotFoundPage /> },
         ],
       },
       {
@@ -98,11 +107,19 @@ export const router = createBrowserRouter([
           </RequireCustomer>
         ),
         children: [
-          { index: true, element: <PortalDevicesPage /> },
-          { path: 'devices/:id', element: <PortalDevicePage /> },
-          { path: 'repairs', element: <PortalRepairsPage /> },
-          { path: 'repairs/:id', element: <PortalRepairPage /> },
-          { path: '*', element: <NotFoundPage /> },
+          {
+            errorElement: <RouteError inline />,
+            children: [
+              { index: true, element: <PortalDevicesPage /> },
+              { path: 'devices/:id', element: <PortalDevicePage /> },
+              { path: 'repairs', element: <PortalRepairsPage /> },
+              { path: 'repairs/:id', element: <PortalRepairPage /> },
+              {
+                path: '*',
+                element: <NotFoundPage home="/portal" homeLabel="Go to your devices" />,
+              },
+            ],
+          },
         ],
       },
     ],

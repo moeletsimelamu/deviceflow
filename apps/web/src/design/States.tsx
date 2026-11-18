@@ -74,9 +74,19 @@ export function EmptyState({
   );
 }
 
+/**
+ * What to tell the user about an error. API errors carry a message written for
+ * people; anything else (a bug in the page) has a technical message, which goes
+ * to the console instead.
+ */
+export function userMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  return 'Something went wrong on this page. Reload it, and if it keeps happening, tell your administrator.';
+}
+
 /** Explains a failed load and offers a retry. Shows the request ID support can trace. */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const message = error instanceof Error ? error.message : 'Something went wrong.';
+  const message = userMessage(error);
   const requestId = error instanceof ApiError ? error.requestId : undefined;
   return (
     <div role="alert" className="flex flex-col items-center px-6 py-14 text-center">
@@ -104,7 +114,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
 /** Inline error banner for forms. */
 export function FormError({ error }: { error: unknown }) {
   if (!error) return null;
-  const message = error instanceof Error ? error.message : 'Something went wrong.';
+  const message = userMessage(error);
   return (
     <div
       role="alert"

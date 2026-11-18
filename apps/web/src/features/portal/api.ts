@@ -26,11 +26,13 @@ export function usePortalAssets(filters: {
   search: string;
   status: AssetStatus | '';
   page: number;
+  /** 20 for the device list; up to 100 (the API's limit) for pickers. */
+  pageSize?: number;
 }) {
   return useQuery({
     queryKey: ['portal', 'assets', filters],
     queryFn: ({ signal }) =>
-      api<Paginated<PortalAsset>>(`/portal/assets${toQueryString({ ...filters, pageSize: 20 })}`, {
+      api<Paginated<PortalAsset>>(`/portal/assets${toQueryString({ pageSize: 20, ...filters })}`, {
         signal,
       }),
     placeholderData: keepPreviousData,

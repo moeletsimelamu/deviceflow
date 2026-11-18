@@ -11,21 +11,36 @@ export const notFoundHandler: RequestHandler = (req) => {
 function toAppError(err: unknown): AppError | null {
   if (err instanceof AppError) return err;
 
-  // body-parser errors carry a `type` and an HTTP status.
-  if (typeof err === 'object' && err !== null && 'type' in err) {
-    const type = (err as { type?: string }).type;
-    if (type === 'entity.parse.failed') {
-      return new AppError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
-    }
-    if (type === 'entity.too.large') {
-      return new AppError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large');
-    }
-  }
-
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002')
       return new AppError(409, 'CONFLICT', 'A record with these details already exists');
     if (err.code === 'P2025') return new AppError(404, 'NOT_FOUND', 'Record not found');
+    return null;
+  }
+
+  if (typeof err !== 'object' || err === null) return null;
+
+  // body-parser errors carry a `type` and an HTTP status.
+  const type = (err as { type?: unknown }).type;
+  if (type === 'entity.parse.failed') {
+    return new AppError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+  }
+  if (type === 'entity.too.large') {
+    return new AppError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large');
+  }
+  if (type === 'charset.unsupported' || type === 'encoding.unsupported') {
+    return new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the request body as UTF-8 JSON');
+  }
+
+  // Other client errors raised by Express or its middleware (an undecodable
+  // %-escape in the URL, a corrupt compressed body, an aborted upload) carry a
+  // 4xx status. They are the client's fault, so they are not 500s. Their own
+  // messages are not passed on: they can quote internals.
+  const status =
+    (err as { status?: unknown; statusCode?: unknown }).status ??
+    (err as { statusCode?: unknown }).statusCode;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    return new AppError(status, 'MALFORMED_REQUEST', 'The request could not be read');
   }
 
   return null;
