@@ -267,10 +267,12 @@ Key constraints and indexes:
 | D3  | Currency and tax                        | **ZAR with 15% VAT** by default, editable in `CompanySettings`. Quotation lines are stored excluding VAT. VAT is calculated per quotation and rounded half-up to the cent, and the rate is frozen on the quotation when it is issued.                                            |
 | D4  | Organisation logins                     | **Multiple customer users per organisation account.** Every user linked to an account sees all of that account's devices and repairs, can submit requests and can approve quotes.                                                                                                |
 
-### Still open (not blocking Phase 2)
+### Open at the end of Phase 1
 
-5. The **hosting target** for Phase 8 (single VM with Compose, Azure, Render or Fly, and so on). This decides the deployment docs and the production Compose and secrets approach.
-6. Should technicians see a **read-only board of all jobs**, or only their own? Default until decided: only their own.
+5. The **hosting target** for Phase 8 (single VM with Compose, Azure, Render or Fly, and so on). This decides the deployment docs and the production Compose and secrets approach. **Status (November 2026):** still open; Phase 8 is on hold until it is chosen.
+6. Should technicians see a **read-only board of all jobs**, or only their own? **Settled in Phase 4:** only their own jobs. The API enforces it, and integration tests check it.
+
+What each phase actually delivered is recorded in [HISTORY.md](HISTORY.md).
 
 ---
 
@@ -291,8 +293,10 @@ output and risks, then waits for your approval.
 
 ### Known risks
 
-- **Docker missing.** Phase 2 cannot reach its exit criteria until decision 1 is made and the tooling is installed.
-- **TypeScript 7 ecosystem gaps.** There may be lint or tooling incompatibilities. Mitigation: verify in Phase 2, fall back to 6.0.3 if needed, and document it.
-- **Prisma 7 changes.** Prisma 7 requires a driver adapter (`@prisma/adapter-pg`), `prisma.config.ts` and an explicit client output path. We pin exact versions and avoid the `latest` tag, which points at an 8.0 release candidate.
-- **argon2 native build on Windows.** The fallback is bcrypt.
-- **Scope size.** This is a large application. Keeping v1 free of payments, notifications and attachments is what makes the definition of done reachable.
+As written in Phase 1, with how each turned out.
+
+- **Docker missing.** Phase 2 cannot reach its exit criteria until decision 1 is made and the tooling is installed. **Resolved:** Docker Desktop was installed (D1) before Phase 2.
+- **TypeScript 7 ecosystem gaps.** There may be lint or tooling incompatibilities. Mitigation: verify in Phase 2, fall back to 6.0.3 if needed, and document it. **Outcome:** the fallback was needed; the project uses TypeScript 6.0.3 because typescript-eslint does not support 7.x yet (see [ARCHITECTURE.md](ARCHITECTURE.md#versions)).
+- **Prisma 7 changes.** Prisma 7 requires a driver adapter (`@prisma/adapter-pg`), `prisma.config.ts` and an explicit client output path. We pin exact versions and avoid the `latest` tag, which points at an 8.0 release candidate. **Outcome:** handled as planned, with Prisma 7 and the `pg` driver adapter.
+- **argon2 native build on Windows.** The fallback is bcrypt. **Outcome:** argon2 built without problems; bcrypt was not needed.
+- **Scope size.** This is a large application. Keeping v1 free of payments, notifications and attachments is what makes the definition of done reachable. **Outcome:** v1 stayed within that scope, and the definition of done is covered by the Playwright tests (Phase 7).

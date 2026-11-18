@@ -67,6 +67,9 @@ has not been done yet.** DeviceFlow runs locally and as a Docker Compose stack, 
 is not hosted anywhere. Known limitations are listed in
 [SECURITY.md](docs/SECURITY.md#known-limitations).
 
+What each phase delivered, with its key decisions and test results, is in
+[HISTORY.md](docs/HISTORY.md).
+
 ## Stack
 
 | Layer    | Technology                                                                              |
@@ -169,6 +172,7 @@ demo profile does.
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md)               | Container images, configuration, CI                                |
 | [DESIGN.md](docs/DESIGN.md)                       | Design system and UI conventions                                   |
 | [PHASE-1-DISCOVERY.md](docs/PHASE-1-DISCOVERY.md) | Requirements, business rules, roadmap                              |
+| [HISTORY.md](docs/HISTORY.md)                     | What each phase delivered: features, decisions, test results       |
 
 ## Repository layout
 
