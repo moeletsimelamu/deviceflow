@@ -7,8 +7,12 @@
  * - Idempotent: re-running updates the demo users and skips customers and assets
  *   that already exist, instead of duplicating them. Demo repairs are created only
  *   when there are no repair jobs yet.
- * - Repairs are created through the real services, so they get the same history,
- *   device status changes and audit entries as jobs created in the app.
+ * - Today's four repairs are created through the real services, so they get the same
+ *   history, device status changes and audit entries as jobs created in the app.
+ * - On an empty database it also writes about five months of finished jobs and the
+ *   stock movements behind them (demo-history.ts), so the reports have something to
+ *   show. The demo users, customers, devices and opening stock are dated to before
+ *   that history.
  */
 import {
   newPasswordSchema,
@@ -23,6 +27,14 @@ import {
 import { hashPassword } from '../src/lib/crypto.js';
 import type { Actor } from '../src/lib/context.js';
 import { prisma } from '../src/lib/prisma.js';
+import {
+  datedMovement,
+  HISTORY_DAYS,
+  sastTime,
+  seedDemoHistory,
+  type HistoryAsset,
+  type HistoryPart,
+} from './demo-history.js';
 import * as inventory from '../src/modules/inventory/inventory.service.js';
 import * as repairs from '../src/modules/repairs/repairs.service.js';
 
@@ -49,10 +61,16 @@ async function main() {
   }
   const passwordHash = await hashPassword(password.data);
 
+  // Everything in the demo predates its history, which starts HISTORY_DAYS ago.
+  const now = new Date();
+  const before = (days: number, hour = 9) => sastTime(now, HISTORY_DAYS + days, hour);
+  const noRepairs = (await prisma.repairJob.count()) === 0;
+  const fresh = noRepairs && (await prisma.part.count()) === 0;
+
   for (const user of DEMO_USERS) {
     await prisma.user.upsert({
       where: { email: user.email },
-      create: { ...user, passwordHash },
+      create: { ...user, passwordHash, createdAt: before(20) },
       update: { fullName: user.fullName, role: user.role, passwordHash, isActive: true },
     });
   }
@@ -74,7 +92,10 @@ async function main() {
           phone: customer.phone,
           city: customer.city,
           region: 'Gauteng',
-          contacts: { create: customer.contacts },
+          createdAt: before(15),
+          contacts: {
+            create: customer.contacts.map((c) => ({ ...c, createdAt: before(15) })),
+          },
         },
       }));
     accounts.set(customer.key, account.id);
@@ -84,13 +105,20 @@ async function main() {
   const parktown = accounts.get('parktown')!;
   await prisma.user.upsert({
     where: { email: PORTAL_USER.email },
-    create: { ...PORTAL_USER, role: 'CUSTOMER', customerAccountId: parktown, passwordHash },
+    create: {
+      ...PORTAL_USER,
+      role: 'CUSTOMER',
+      customerAccountId: parktown,
+      passwordHash,
+      createdAt: before(14),
+    },
     update: { fullName: PORTAL_USER.fullName, passwordHash, isActive: true },
   });
   console.log(`  CUSTOMER           ${PORTAL_USER.email} (portal user for Parktown Primary)`);
 
   let created = 0;
-  for (const asset of DEMO_ASSETS) {
+  for (const [index, asset] of DEMO_ASSETS.entries()) {
+    const registered = before(12, 9 + index * 0.5);
     const manufacturerKey = asset.manufacturer.toUpperCase();
     const serialNumber = normaliseSerial(asset.serial);
     const exists = await prisma.asset.findUnique({
@@ -111,6 +139,8 @@ async function main() {
           purchaseDate: new Date(`${asset.purchased}T00:00:00Z`),
           warrantyExpiresOn: new Date(`${asset.warrantyUntil}T00:00:00Z`),
           createdById: admin.id,
+          createdAt: registered,
+          updatedAt: registered,
         },
       });
       await tx.assetEvent.create({
@@ -121,6 +151,7 @@ async function main() {
           toCustomerAccountId: customerAccountId,
           actorUserId: admin.id,
           note: 'Demo seed',
+          createdAt: registered,
         },
       });
     });
@@ -128,8 +159,41 @@ async function main() {
   }
   console.log(`Seeded ${created} new assets (${DEMO_ASSETS.length - created} already present).`);
 
-  await seedRepairs();
-  await seedInventory();
+  const partsCreated = await seedParts(before(5, 10));
+  if (fresh) await seedHistory(now);
+  if (noRepairs) await seedRepairs();
+  else console.log('Repair jobs already exist; demo repairs skipped.');
+  if (partsCreated) await useDemoBattery();
+}
+
+/** Finished jobs over the last few months (demo-history.ts). Empty databases only. */
+async function seedHistory(now: Date) {
+  const people = {
+    admin: (await actor('admin@deviceflow.test')).userId,
+    sipho: (await actor('tech@deviceflow.test')).userId,
+    lerato: (await actor('tech2@deviceflow.test')).userId,
+    inventoryManager: (await actor('inventory@deviceflow.test')).userId,
+    portal: (await actor(PORTAL_USER.email)).userId,
+  };
+  const assets = new Map<string, HistoryAsset>();
+  for (const a of await prisma.asset.findMany({ include: { customerAccount: true } })) {
+    if (!a.serialNumber || !a.customerAccount) continue;
+    assets.set(a.serialNumber, {
+      id: a.id,
+      customerAccountId: a.customerAccount.id,
+      customerName: a.customerAccount.name,
+    });
+  }
+  const parts = new Map<string, HistoryPart>();
+  for (const p of DEMO_PARTS) {
+    const row = await prisma.part.findUnique({ where: { sku: p.sku } });
+    if (row) parts.set(p.sku, { id: row.id, unitCostCents: p.unitCostCents, supplier: p.supplier });
+  }
+  const count = await prisma.$transaction(
+    (tx) => seedDemoHistory(tx, { now, people, assets, parts }),
+    { timeout: 120_000 },
+  );
+  console.log(`Seeded ${count} finished demo repair jobs over the last ${HISTORY_DAYS} days.`);
 }
 
 const SEED_CTX = { requestId: 'demo-seed', ipAddress: null };
@@ -187,11 +251,8 @@ const labourLine = (hours: number): QuoteLineInput => ({
 });
 
 /** Four repairs at different stages, so every screen has something to show. */
+/** Called only when the database had no repair jobs before this seed run. */
 async function seedRepairs() {
-  if ((await prisma.repairJob.count()) > 0) {
-    console.log('Repair jobs already exist; demo repairs skipped.');
-    return;
-  }
   const admin = await actor('admin@deviceflow.test');
   const sipho = await actor('tech@deviceflow.test');
   const lerato = await actor('tech2@deviceflow.test');
@@ -362,7 +423,9 @@ async function seedRepairs() {
     },
     { timeout: 60_000 },
   );
-  console.log('Seeded 4 demo repair jobs (awaiting approval, submitted, in repair, closed).');
+  console.log(
+    "Seeded today's 4 demo repair jobs (awaiting approval, submitted, in repair, closed).",
+  );
 }
 
 const DEMO_PARTS: Array<
@@ -451,17 +514,16 @@ const DEMO_PARTS: Array<
 ];
 
 /**
- * Demo parts, received through the real inventory service so every unit in
- * stock has a ledger entry. The battery for the Dell laptop that is being
- * repaired is used on its job. Skipped when any parts already exist.
+ * Demo parts, created through the real inventory service. Their opening stock is
+ * dated to before the demo history (`openedAt`), so the ledger reads in date order.
+ * Skipped when any parts already exist. Returns whether the parts were created.
  */
-async function seedInventory() {
+async function seedParts(openedAt: Date): Promise<boolean> {
   if ((await prisma.part.count()) > 0) {
     console.log('Parts already exist; demo inventory skipped.');
-    return;
+    return false;
   }
   const manager = await actor('inventory@deviceflow.test');
-  const lerato = await actor('tech2@deviceflow.test');
   await prisma.$transaction(
     async (tx) => {
       for (const { stock, unitCostCents, supplier, ...part } of DEMO_PARTS) {
@@ -471,32 +533,22 @@ async function seedInventory() {
           { ...part, description: null },
           SEED_CTX,
         );
+        await tx.part.update({
+          where: { id: created.id },
+          data: { createdAt: openedAt, updatedAt: openedAt },
+        });
         if (stock > 0) {
-          await inventory.recordPurchase(
-            tx,
-            manager,
-            created.id,
-            { quantity: stock, unitCostCents, supplier, reference: 'Opening stock', note: null },
-            SEED_CTX,
-          );
+          await datedMovement(tx, {
+            partId: created.id,
+            type: 'PURCHASE',
+            quantity: stock,
+            unitCostCents,
+            supplier,
+            reference: 'Opening stock',
+            actorUserId: manager.userId,
+            at: openedAt,
+          });
         }
-      }
-      const battery = await tx.part.findUniqueOrThrow({ where: { sku: 'DELL-BAT-54WH' } });
-      const job = await tx.repairJob.findFirst({
-        where: {
-          status: 'IN_REPAIR',
-          assignedTechnicianId: lerato.userId,
-          asset: { serialNumber: '7XK29P3' },
-        },
-      });
-      if (job) {
-        await inventory.useRepairPart(
-          tx,
-          lerato,
-          job.id,
-          { partId: battery.id, quantity: 1, note: 'Old battery swollen; replaced.' },
-          SEED_CTX,
-        );
       }
     },
     { timeout: 60_000 },
@@ -504,6 +556,31 @@ async function seedInventory() {
   console.log(
     `Seeded ${DEMO_PARTS.length} parts (two at or below their reorder level, one out of stock).`,
   );
+  return true;
+}
+
+/** The battery for the Dell laptop that is being repaired today is used on its job. */
+async function useDemoBattery() {
+  const lerato = await actor('tech2@deviceflow.test');
+  await prisma.$transaction(async (tx) => {
+    const battery = await tx.part.findUniqueOrThrow({ where: { sku: 'DELL-BAT-54WH' } });
+    const job = await tx.repairJob.findFirst({
+      where: {
+        status: 'IN_REPAIR',
+        assignedTechnicianId: lerato.userId,
+        asset: { serialNumber: '7XK29P3' },
+      },
+    });
+    if (job) {
+      await inventory.useRepairPart(
+        tx,
+        lerato,
+        job.id,
+        { partId: battery.id, quantity: 1, note: 'Old battery swollen; replaced.' },
+        SEED_CTX,
+      );
+    }
+  });
 }
 
 const DEMO_CUSTOMERS = [

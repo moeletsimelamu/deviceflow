@@ -131,6 +131,14 @@ and repairs; one of them has a quotation waiting for approval. Technician
 stock (two at or below their reorder level, one out of stock), and the battery for
 the laptop being repaired is recorded as used on its job.
 
+On an empty database the seed also adds about five months of history: 24 finished
+jobs (one declined by the customer) with their quotations, labour, parts and the
+deliveries behind them, so the reports and the portal have something to show. These
+records are written with their past dates rather than through the services, which
+always stamp the current time; the reasoning and the rules they follow are in
+[`apps/api/prisma/demo-history.ts`](apps/api/prisma/demo-history.ts). The activity
+log is not backfilled, so it starts at the time you seed.
+
 These accounts exist for development and demos only. The seed refuses to run when
 `NODE_ENV=production` unless it is explicitly confirmed, which only the local Docker
 demo profile does.
