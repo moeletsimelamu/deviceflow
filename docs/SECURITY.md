@@ -143,6 +143,24 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
     them (a supply-chain precaution), and neither advisory can be reached by an
     attacker. To do: upgrade ESLint and typescript-eslint after 2026-11-24, and take
     a fixed picomatch when one is released.
+- **Audit update (2026-11-24).**
+  - **minimatch: fixed.** ESLint upgraded to 10.15.0 and typescript-eslint to 8.73.0
+    once both were at least a week old. typescript-eslint 8.74.0 was out by then but
+    only a day old, so it was not taken.
+  - **picomatch: no longer reported** by `npm audit`, with the same picomatch 4.0.7
+    installed, so the change is on the advisory's side. Nothing to do.
+  - **New: effect ReDoS** (GHSA-7589-6fvf-x4pw, high; versions up to 3.22.0). It
+    reaches us through the Prisma CLI (`prisma` → `@prisma/config`, which pins
+    `effect` 3.20.0 exactly), and because the CLI runs the migration step in the
+    production image, `npm audit --omit=dev` now reports it too (3 entries, one
+    advisory). Not reachable: the affected code compiles schemas into regular
+    expressions, and Prisma uses it only to read our own `prisma.config.ts` while a
+    migration or code generation runs, never in the API server and never on input
+    from users. npm's suggested fix is a downgrade to Prisma 6, which is not an
+    option. Fixed `effect` releases exist (3.22.1 and later; 3.22.4 is from October
+    2026), so the remedy is a newer Prisma or an npm override pinning `effect` to a
+    fixed 3.22 release, tested against migrations and code generation. Tracked
+    below.
 - Playwright and axe-core (Phase 7) are development-only, pinned exactly, and not
   in the production images. Playwright downloads its Chromium build from its own
   CDN with `npx playwright install chromium`.
@@ -200,10 +218,10 @@ requestId } }`). Unexpected errors return a generic message; the stack goes only
 
 ## Known limitations
 
-| Limitation                                                                      | Plan                                                                              |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| The rate-limit store is in-memory, so it is per instance and resets on restart. | Use a shared store (Redis or Postgres) before running more than one API instance. |
-| No self-service password reset (needs email delivery).                          | Admin-set passwords for now. Revisit when notifications are added.                |
-| No MFA.                                                                         | Candidate for after v1.                                                           |
-| Two development-only advisories (picomatch, minimatch) are open; see above.     | Upgrade ESLint after the cooling-off week; take a fixed picomatch when released.  |
-| No general per-address request rate limit.                                      | Add at the edge (nginx or the host) with the production configuration, Phase 8.   |
+| Limitation                                                                       | Plan                                                                              |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The rate-limit store is in-memory, so it is per instance and resets on restart.  | Use a shared store (Redis or Postgres) before running more than one API instance. |
+| No self-service password reset (needs email delivery).                           | Admin-set passwords for now. Revisit when notifications are added.                |
+| No MFA.                                                                          | Candidate for after v1.                                                           |
+| `effect` ReDoS through the Prisma CLI (not reachable; see the 2026-11-24 audit). | Take a Prisma release with a fixed `effect`, or override `effect` to 3.22.x.      |
+| No general per-address request rate limit.                                       | Add at the edge (nginx or the host) with the production configuration, Phase 8.   |
