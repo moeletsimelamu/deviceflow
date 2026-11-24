@@ -159,8 +159,20 @@ Cookie authentication needs CSRF protection. DeviceFlow uses three layers:
     from users. npm's suggested fix is a downgrade to Prisma 6, which is not an
     option. Fixed `effect` releases exist (3.22.1 and later; 3.22.4 is from October
     2026), so the remedy is a newer Prisma or an npm override pinning `effect` to a
-    fixed 3.22 release, tested against migrations and code generation. Tracked
-    below.
+    fixed 3.22 release, tested against migrations and code generation.
+  - **effect: fixed the same day** with an npm override in the root `package.json`
+    (`"effect": "3.22.4"`, a release from October 2026). Checked: the schema
+    validates, the Prisma client generates, all migrations apply to an empty
+    database and the full demo seed runs, and the unit and integration tests pass. After it,
+    `npm audit` and `npm audit --omit=dev` both report **0** vulnerabilities.
+  - **Remove the override** when a Prisma release depends on a fixed `effect`
+    itself; until then, check it on every Prisma upgrade.
+  - **How the override was applied:** npm kept the old nested copy at first (as it
+    did with `playwright-core`), and simply deleting it made npm drop `effect`
+    altogether, which also gives a clean audit but breaks `prisma generate`.
+    Running `npm update effect` with the override in place installed 3.22.4
+    correctly. Always confirm with `npm ls effect` that the overridden version is
+    the one installed.
 - Playwright and axe-core (Phase 7) are development-only, pinned exactly, and not
   in the production images. Playwright downloads its Chromium build from its own
   CDN with `npx playwright install chromium`.
@@ -218,10 +230,9 @@ requestId } }`). Unexpected errors return a generic message; the stack goes only
 
 ## Known limitations
 
-| Limitation                                                                       | Plan                                                                              |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| The rate-limit store is in-memory, so it is per instance and resets on restart.  | Use a shared store (Redis or Postgres) before running more than one API instance. |
-| No self-service password reset (needs email delivery).                           | Admin-set passwords for now. Revisit when notifications are added.                |
-| No MFA.                                                                          | Candidate for after v1.                                                           |
-| `effect` ReDoS through the Prisma CLI (not reachable; see the 2026-11-24 audit). | Take a Prisma release with a fixed `effect`, or override `effect` to 3.22.x.      |
-| No general per-address request rate limit.                                       | Add at the edge (nginx or the host) with the production configuration, Phase 8.   |
+| Limitation                                                                      | Plan                                                                              |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The rate-limit store is in-memory, so it is per instance and resets on restart. | Use a shared store (Redis or Postgres) before running more than one API instance. |
+| No self-service password reset (needs email delivery).                          | Admin-set passwords for now. Revisit when notifications are added.                |
+| No MFA.                                                                         | Candidate for after v1.                                                           |
+| No general per-address request rate limit.                                      | Add at the edge (nginx or the host) with the production configuration, Phase 8.   |

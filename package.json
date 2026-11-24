@@ -47,6 +47,7 @@
   },
   "packageManager": "npm@11.21.1",
   "overrides": {
+    "effect": "3.22.4",
     "playwright-core": "1.65.0"
   }
 }
